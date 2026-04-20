@@ -1,0 +1,13 @@
+# Configuration settings
+
+SERVER_URL = "http://10.0.0.1:5000/upload"  # Private WireGuard IP
+UPLOAD_INTERVAL = 60  # Seconds between uploads
+
+# Sensor settings (modify as needed)
+I2C_BUS = 1
+SPI_BUS = 0
+SPI_DEVICE = 0
+
+# Logging
+LOG_FILE = "environmental_monitor.log"
+LOG_LEVEL = "INFO"
