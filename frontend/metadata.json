@@ -1,0 +1,5 @@
+{
+  "name": "PiAQ - Intelligent Air Quality Monitor",
+  "description": "A sleek, modern dashboard for real-time air quality monitoring with historical trends and AI-powered health insights.",
+  "requestFramePermissions": []
+}
