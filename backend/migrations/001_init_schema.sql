@@ -1,6 +1,6 @@
 CREATE TABLE IF NOT EXISTS devices (
     id SERIAL PRIMARY KEY,
-    device_name VARCHAR(100) NOT NULL UNIQUE,
+    device_id VARCHAR(100) NOT NULL UNIQUE,
     location_label VARCHAR(150),
     status VARCHAR(30) NOT NULL DEFAULT 'offline',
     registered_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
