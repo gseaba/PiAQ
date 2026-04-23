@@ -1,0 +1,9 @@
+download postgreSQL v18.3
+    - inspect the database: psql -U postgres -d piaq
+    - \dt (inspect tables)
+    - \d tablename (inspect table schema)
+
+- npm install
+- npm run migrate
+- npm run dev
+
