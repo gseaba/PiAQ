@@ -1,0 +1,3 @@
+ALTER TABLE IF EXISTS sensor_readings
+    ADD COLUMN IF NOT EXISTS temperature NUMERIC(10,2),
+    ADD COLUMN IF NOT EXISTS humidity NUMERIC(10,2);

@@ -33,11 +33,13 @@ async function ingestBatch({ deviceId, readings }) {
                     pm1_0_avg,
                     pm2_5_avg,
                     pm10_avg,
+                    temperature,
+                    humidity,
                     sample_count,
                     raw_payload
                 )
                 VALUES (
-                    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12
+                    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14
                 )
                 ON CONFLICT (device_id, window_start, window_end)
                 DO NOTHING
@@ -55,6 +57,8 @@ async function ingestBatch({ deviceId, readings }) {
                 reading.pm1_0_avg ?? null,
                 reading.pm2_5_avg ?? null,
                 reading.pm10_avg ?? null,
+                reading.temperature ?? null,
+                reading.humidity ?? null,
                 reading.sampleCount,
                 reading
             ];

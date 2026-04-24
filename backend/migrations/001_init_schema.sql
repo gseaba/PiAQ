@@ -19,6 +19,8 @@ CREATE TABLE IF NOT EXISTS sensor_readings (
     pm1_0_avg NUMERIC(10,2),
     pm2_5_avg NUMERIC(10,2),
     pm10_avg NUMERIC(10,2),
+    temperature NUMERIC(10,2),
+    humidity NUMERIC(10,2),
     sample_count INTEGER NOT NULL DEFAULT 0,
     raw_payload JSONB,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),

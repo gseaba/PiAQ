@@ -14,6 +14,8 @@ function createReading(overrides = {}) {
         pm1_0_avg: 2.2,
         pm2_5_avg: 3.5,
         pm10_avg: 4.1,
+        temperature: 21.8,
+        humidity: 47.3,
         sampleCount: 15,
         ...overrides
     };
@@ -103,6 +105,8 @@ test('ingestBatch inserts new readings, skips duplicates, and updates device syn
         readings[0].pm1_0_avg,
         readings[0].pm2_5_avg,
         readings[0].pm10_avg,
+        readings[0].temperature,
+        readings[0].humidity,
         readings[0].sampleCount,
         readings[0]
     ]);

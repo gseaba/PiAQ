@@ -39,6 +39,8 @@ function createValidReading(overrides = {}) {
         pm1_0_avg: 1.1,
         pm2_5_avg: 2.2,
         pm10_avg: 3.3,
+        temperature: 22.4,
+        humidity: 48.5,
         ...overrides
     };
 }
@@ -172,7 +174,9 @@ test('POST /ingest/batch rejects invalid reading fields', async () => {
                     createValidReading({
                         windowStart: 'not-a-date',
                         sampleCount: 0,
-                        co2_avg: -1
+                        co2_avg: -1,
+                        temperature: 'warm',
+                        humidity: 101
                     })
                 ]
             }
@@ -195,6 +199,18 @@ test('POST /ingest/batch rejects invalid reading fields', async () => {
             response.body.details.some((detail) =>
                 detail.field === 'readings[0].co2_avg' &&
                 detail.message === 'co2_avg must be a non-negative number'
+            )
+        );
+        assert.ok(
+            response.body.details.some((detail) =>
+                detail.field === 'readings[0].temperature' &&
+                detail.message === 'temperature must be a number'
+            )
+        );
+        assert.ok(
+            response.body.details.some((detail) =>
+                detail.field === 'readings[0].humidity' &&
+                detail.message === 'humidity must be a number between 0 and 100'
             )
         );
     });
