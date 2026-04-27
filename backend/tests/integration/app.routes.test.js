@@ -10,6 +10,18 @@ function loadApp({ deviceService, ingestService } = {}) {
             'src/services/devices.service.js': deviceService || {
                 registerDevice: async () => {
                     throw new Error('registerDevice stub not configured');
+                },
+                listDevices: async () => {
+                    throw new Error('listDevices stub not configured');
+                },
+                getLatestDeviceSummary: async () => {
+                    throw new Error('getLatestDeviceSummary stub not configured');
+                },
+                getDeviceHistory: async () => {
+                    throw new Error('getDeviceHistory stub not configured');
+                },
+                getDeviceAlerts: async () => {
+                    throw new Error('getDeviceAlerts stub not configured');
                 }
             },
             'src/services/ingest.service.js': ingestService || {
@@ -136,6 +148,274 @@ test('POST /devices/register returns the normalized controller response', async 
                 registeredAt: '2026-04-23T12:00:00.000Z',
                 lastSeenAt: '2026-04-23T12:03:00.000Z'
             }
+        });
+    });
+});
+
+test('GET /devices returns registered devices in the dashboard response shape', async () => {
+    const app = loadApp({
+        deviceService: {
+            registerDevice: async () => {
+                throw new Error('registerDevice should not be called');
+            },
+            listDevices: async () => ([
+                {
+                    id: 1,
+                    device_id: 'pi-001',
+                    location_label: 'Atrium',
+                    status: 'online',
+                    registered_at: '2026-04-23T12:00:00.000Z',
+                    last_seen_at: '2026-04-23T12:05:00.000Z'
+                },
+                {
+                    id: 2,
+                    device_id: 'pi-002',
+                    location_label: null,
+                    status: 'offline',
+                    registered_at: '2026-04-23T11:00:00.000Z',
+                    last_seen_at: null
+                }
+            ]),
+            getLatestDeviceSummary: async () => {
+                throw new Error('getLatestDeviceSummary should not be called');
+            },
+            getDeviceHistory: async () => {
+                throw new Error('getDeviceHistory should not be called');
+            },
+            getDeviceAlerts: async () => {
+                throw new Error('getDeviceAlerts should not be called');
+            }
+        }
+    });
+
+    await withServer(app, async (baseUrl) => {
+        const response = await requestJson(baseUrl, '/devices');
+
+        assert.equal(response.status, 200);
+        assert.deepEqual(response.body, {
+            devices: [
+                {
+                    id: 1,
+                    deviceId: 'pi-001',
+                    locationLabel: 'Atrium',
+                    status: 'online',
+                    registeredAt: '2026-04-23T12:00:00.000Z',
+                    lastSeenAt: '2026-04-23T12:05:00.000Z'
+                },
+                {
+                    id: 2,
+                    deviceId: 'pi-002',
+                    locationLabel: null,
+                    status: 'offline',
+                    registeredAt: '2026-04-23T11:00:00.000Z',
+                    lastSeenAt: null
+                }
+            ]
+        });
+    });
+});
+
+test('GET /devices/:deviceId/latest returns the latest summary window', async () => {
+    const app = loadApp({
+        deviceService: {
+            registerDevice: async () => {
+                throw new Error('registerDevice should not be called');
+            },
+            listDevices: async () => {
+                throw new Error('listDevices should not be called');
+            },
+            getLatestDeviceSummary: async (deviceId) => ({
+                device_id: deviceId,
+                window_start: '2026-04-23T10:00:00.000Z',
+                window_end: '2026-04-23T10:05:00.000Z',
+                sample_count: 12,
+                co2_avg: 612.5,
+                co2_max: 701.4,
+                voc_avg: 104.2,
+                voc_max: 140.8,
+                pm1_0_avg: 1.4,
+                pm2_5_avg: 2.5,
+                pm10_avg: 3.1,
+                temperature: 22.8,
+                humidity: 49.1
+            }),
+            getDeviceHistory: async () => {
+                throw new Error('getDeviceHistory should not be called');
+            },
+            getDeviceAlerts: async () => {
+                throw new Error('getDeviceAlerts should not be called');
+            }
+        }
+    });
+
+    await withServer(app, async (baseUrl) => {
+        const response = await requestJson(baseUrl, '/devices/pi-001/latest');
+
+        assert.equal(response.status, 200);
+        assert.deepEqual(response.body, {
+            deviceId: 'pi-001',
+            latest: {
+                windowStart: '2026-04-23T10:00:00.000Z',
+                windowEnd: '2026-04-23T10:05:00.000Z',
+                sampleCount: 12,
+                metrics: {
+                    co2: { avg: 612.5, max: 701.4 },
+                    voc: { avg: 104.2, max: 140.8 },
+                    pm1_0: { avg: 1.4, max: 1.4 },
+                    pm2_5: { avg: 2.5, max: 2.5 },
+                    pm10: { avg: 3.1, max: 3.1 },
+                    temperature: { avg: 22.8, max: 22.8 },
+                    humidity: { avg: 49.1, max: 49.1 }
+                }
+            }
+        });
+    });
+});
+
+test('GET /devices/:deviceId/history rejects invalid metric or time range parameters', async () => {
+    const app = loadApp();
+
+    await withServer(app, async (baseUrl) => {
+        const response = await requestJson(
+            baseUrl,
+            '/devices/pi-001/history?start=2026-04-23T11:00:00.000Z&end=2026-04-23T10:00:00.000Z&bucket=15x&metric=noise'
+        );
+
+        assert.equal(response.status, 400);
+        assert.equal(response.body.error, 'Validation failed');
+        assert.ok(
+            response.body.details.some((detail) =>
+                detail.field === 'bucket' &&
+                detail.message === 'bucket must be one of the supported duration formats like 5m, 1h, or 1d'
+            )
+        );
+        assert.ok(
+            response.body.details.some((detail) =>
+                detail.field === 'metric' &&
+                detail.message === 'metric must be one of: co2, voc, pm1_0, pm2_5, pm10, temperature, humidity'
+            )
+        );
+        assert.ok(
+            response.body.details.some((detail) =>
+                detail.field === 'end' &&
+                detail.message === 'end must be later than start'
+            )
+        );
+    });
+});
+
+test('GET /devices/:deviceId/history returns chart-ready points for a requested metric', async () => {
+    const app = loadApp({
+        deviceService: {
+            registerDevice: async () => {
+                throw new Error('registerDevice should not be called');
+            },
+            listDevices: async () => {
+                throw new Error('listDevices should not be called');
+            },
+            getLatestDeviceSummary: async () => {
+                throw new Error('getLatestDeviceSummary should not be called');
+            },
+            getDeviceHistory: async ({ start, end, bucket, metric }) => ({
+                metric,
+                range: { start, end, bucket },
+                points: [
+                    {
+                        timestamp: '2026-04-23T10:00:00.000Z',
+                        avg: 601.2,
+                        min: 590.1,
+                        max: 640.8
+                    }
+                ]
+            }),
+            getDeviceAlerts: async () => {
+                throw new Error('getDeviceAlerts should not be called');
+            }
+        }
+    });
+
+    await withServer(app, async (baseUrl) => {
+        const response = await requestJson(
+            baseUrl,
+            '/devices/pi-001/history?start=2026-04-23T10:00:00.000Z&end=2026-04-23T11:00:00.000Z&bucket=5m&metric=co2'
+        );
+
+        assert.equal(response.status, 200);
+        assert.deepEqual(response.body, {
+            deviceId: 'pi-001',
+            range: {
+                start: '2026-04-23T10:00:00.000Z',
+                end: '2026-04-23T11:00:00.000Z',
+                bucket: '5m'
+            },
+            metric: 'co2',
+            points: [
+                {
+                    timestamp: '2026-04-23T10:00:00.000Z',
+                    avg: 601.2,
+                    min: 590.1,
+                    max: 640.8
+                }
+            ]
+        });
+    });
+});
+
+test('GET /devices/:deviceId/alerts returns active and recent resolved alerts', async () => {
+    const app = loadApp({
+        deviceService: {
+            registerDevice: async () => {
+                throw new Error('registerDevice should not be called');
+            },
+            listDevices: async () => {
+                throw new Error('listDevices should not be called');
+            },
+            getLatestDeviceSummary: async () => {
+                throw new Error('getLatestDeviceSummary should not be called');
+            },
+            getDeviceHistory: async () => {
+                throw new Error('getDeviceHistory should not be called');
+            },
+            getDeviceAlerts: async () => ([
+                {
+                    id: 11,
+                    metric_name: 'co2',
+                    threshold_value: 1000,
+                    comparison_operator: '>',
+                    started_at: '2026-04-23T10:00:00.000Z',
+                    ended_at: null,
+                    peak_value: 1240,
+                    status: 'active',
+                    message: 'CO2 exceeded threshold',
+                    created_at: '2026-04-23T10:01:00.000Z'
+                }
+            ])
+        }
+    });
+
+    await withServer(app, async (baseUrl) => {
+        const response = await requestJson(baseUrl, '/devices/pi-001/alerts');
+
+        assert.equal(response.status, 200);
+        assert.deepEqual(response.body, {
+            deviceId: 'pi-001',
+            filters: {
+                status: null
+            },
+            alerts: [
+                {
+                    id: 11,
+                    metricName: 'co2',
+                    thresholdValue: 1000,
+                    comparisonOperator: '>',
+                    startedAt: '2026-04-23T10:00:00.000Z',
+                    endedAt: null,
+                    peakValue: 1240,
+                    status: 'active',
+                    message: 'CO2 exceeded threshold',
+                    createdAt: '2026-04-23T10:01:00.000Z'
+                }
+            ]
         });
     });
 });
