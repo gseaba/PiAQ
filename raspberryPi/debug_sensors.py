@@ -42,9 +42,9 @@ def debug_test():
             # 4. Test PMS5003
             pm_data = pms5003.read()
             if pm_data:
-                print(f"[PMS] PM 1.0: {pm_data['pm10']} µg/m³")
-                print(f"[PMS] PM 2.5: {pm_data['pm25']} µg/m³")
-                print(f"[PMS] PM 10:  {pm_data['pm100']} µg/m³")
+                print(f"[PMS] PM 1.0: {pm_data['pm1_0']} µg/m³")
+                print(f"[PMS] PM 2.5: {pm_data['pm2_5']} µg/m³")
+                print(f"[PMS] PM 10:  {pm_data['pm10']} µg/m³")
             else:
                 print("[PMS] Error reading particulate matter data.")
 
