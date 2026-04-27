@@ -1,7 +1,7 @@
 requests
 pyserial
 adafruit-blinka
-adafruit-circuitpython-scd30
+adafruit-circuitpython-scd4x
 adafruit-circuitpython-pm25
 adafruit-circuitpython-sgp40
 adafruit-circuitpython-sht31d
