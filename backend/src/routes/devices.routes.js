@@ -2,19 +2,11 @@ const express = require('express');
 const { body, param, query } = require('express-validator');
 
 const devicesController = require('../controllers/devices.controller');
+const { SUPPORTED_METRICS } = require('../constants/metrics');
+const { SUPPORTED_OPERATORS } = require('../services/alert.service');
 const validateRequest = require('../middleware/validateRequest');
 
 const router = express.Router();
-
-const SUPPORTED_METRICS = [
-    'co2',
-    'voc',
-    'pm1_0',
-    'pm2_5',
-    'pm10',
-    'temperature',
-    'humidity'
-];
 
 router.post(
     '/register',
@@ -102,6 +94,68 @@ router.get(
     ],
     validateRequest,
     devicesController.getDeviceAlerts
+);
+
+router.get(
+    '/:deviceId/rules',
+    [
+        param('deviceId')
+            .trim()
+            .notEmpty()
+            .withMessage('deviceId is required')
+    ],
+    validateRequest,
+    devicesController.getAlertRules
+);
+
+router.put(
+    '/:deviceId/rules',
+    [
+        param('deviceId')
+            .trim()
+            .notEmpty()
+            .withMessage('deviceId is required'),
+        body('rules')
+            .isArray()
+            .withMessage('rules must be an array'),
+        body('rules.*.metricName')
+            .isIn(SUPPORTED_METRICS)
+            .withMessage(`metricName must be one of: ${SUPPORTED_METRICS.join(', ')}`),
+        body('rules.*.operator')
+            .isIn(SUPPORTED_OPERATORS)
+            .withMessage(`operator must be one of: ${SUPPORTED_OPERATORS.join(', ')}`),
+        body('rules.*.thresholdValue')
+            .isFloat()
+            .withMessage('thresholdValue must be a number'),
+        body('rules.*.durationSeconds')
+            .isInt({ min: 0 })
+            .withMessage('durationSeconds must be an integer greater than or equal to 0'),
+        body('rules.*.enabled')
+            .isBoolean()
+            .withMessage('enabled must be a boolean'),
+        body('rules').custom((rules) => {
+            const uniqueKeys = new Set();
+
+            for (const rule of rules) {
+                const uniqueKey = [
+                    rule.metricName,
+                    rule.operator,
+                    rule.thresholdValue,
+                    rule.durationSeconds
+                ].join('|');
+
+                if (uniqueKeys.has(uniqueKey)) {
+                    throw new Error('rules must not contain duplicate metric/operator/threshold/duration combinations');
+                }
+
+                uniqueKeys.add(uniqueKey);
+            }
+
+            return true;
+        })
+    ],
+    validateRequest,
+    devicesController.replaceAlertRules
 );
 
 module.exports = router;

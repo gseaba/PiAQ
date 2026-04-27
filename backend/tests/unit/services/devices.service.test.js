@@ -283,3 +283,139 @@ test('getDeviceAlerts throws a 404 when the device is unknown', async () => {
         }
     );
 });
+
+test('getAlertRules returns device-specific rules in stable order', async () => {
+    const capturedCalls = [];
+    const service = loadFresh('src/services/devices.service.js', {
+        mocks: {
+            'src/config/db.js': {
+                query: async (query, values) => {
+                    capturedCalls.push({ query, values });
+
+                    if (/FROM devices/i.test(query)) {
+                        return { rows: [{ id: 55, device_id: 'pi-001' }] };
+                    }
+
+                    if (/FROM alert_rules/i.test(query)) {
+                        return {
+                            rows: [
+                                {
+                                    id: 4,
+                                    metric_name: 'co2',
+                                    operator: '>=',
+                                    threshold_value: 1000,
+                                    duration_seconds: 300,
+                                    enabled: true,
+                                    created_at: '2026-04-27T13:00:00.000Z'
+                                }
+                            ]
+                        };
+                    }
+
+                    throw new Error(`Unexpected query: ${query}`);
+                }
+            }
+        }
+    });
+
+    const result = await service.getAlertRules('pi-001');
+
+    assert.deepEqual(result, [
+        {
+            id: 4,
+            metric_name: 'co2',
+            operator: '>=',
+            threshold_value: 1000,
+            duration_seconds: 300,
+            enabled: true,
+            created_at: '2026-04-27T13:00:00.000Z'
+        }
+    ]);
+    assert.equal(capturedCalls.length, 2);
+    assert.deepEqual(capturedCalls[0].values, ['pi-001']);
+    assert.deepEqual(capturedCalls[1].values, [55]);
+});
+
+test('replaceAlertRules replaces a device rule set inside a transaction', async () => {
+    const calls = [];
+    let released = false;
+
+    const client = {
+        query: async (query, values) => {
+            calls.push({ query, values });
+
+            if (query === 'BEGIN' || query === 'COMMIT') {
+                return {};
+            }
+
+            if (/FROM devices/i.test(query)) {
+                return { rows: [{ id: 9, device_id: 'pi-001' }] };
+            }
+
+            if (/DELETE FROM alert_rules/i.test(query)) {
+                return { rows: [] };
+            }
+
+            if (/INSERT INTO alert_rules/i.test(query)) {
+                return { rows: [] };
+            }
+
+            if (/SELECT\s+id,\s+metric_name/i.test(query) && /FROM alert_rules/i.test(query)) {
+                return {
+                    rows: [
+                        {
+                            id: 2,
+                            metric_name: 'co2',
+                            operator: '>=',
+                            threshold_value: 1000,
+                            duration_seconds: 300,
+                            enabled: true,
+                            created_at: '2026-04-27T13:00:00.000Z'
+                        }
+                    ]
+                };
+            }
+
+            throw new Error(`Unexpected query: ${query}`);
+        },
+        release: () => {
+            released = true;
+        }
+    };
+
+    const service = loadFresh('src/services/devices.service.js', {
+        mocks: {
+            'src/config/db.js': {
+                connect: async () => client
+            }
+        }
+    });
+
+    const result = await service.replaceAlertRules({
+        deviceId: 'pi-001',
+        rules: [
+            {
+                metricName: 'co2',
+                operator: '>=',
+                thresholdValue: 1000,
+                durationSeconds: 300,
+                enabled: true
+            }
+        ]
+    });
+
+    assert.deepEqual(result, [
+        {
+            id: 2,
+            metric_name: 'co2',
+            operator: '>=',
+            threshold_value: 1000,
+            duration_seconds: 300,
+            enabled: true,
+            created_at: '2026-04-27T13:00:00.000Z'
+        }
+    ]);
+    assert.equal(released, true);
+    assert.equal(calls[0].query, 'BEGIN');
+    assert.equal(calls.at(-1).query, 'COMMIT');
+});

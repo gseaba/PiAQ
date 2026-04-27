@@ -286,3 +286,114 @@ test('getDeviceAlerts maps alert rows into the frontend shape', async () => {
         ]
     });
 });
+
+test('getAlertRules maps alert-rule rows into the frontend shape', async () => {
+    const controller = loadFresh('src/controllers/devices.controller.js', {
+        mocks: {
+            'src/services/devices.service.js': {
+                getAlertRules: async () => ([
+                    {
+                        id: 77,
+                        metric_name: 'co2',
+                        operator: '>=',
+                        threshold_value: 1000,
+                        duration_seconds: 300,
+                        enabled: true,
+                        created_at: '2026-04-27T13:00:00.000Z'
+                    }
+                ])
+            }
+        }
+    });
+
+    const res = createResponse();
+
+    await controller.getAlertRules({ params: { deviceId: 'pi-001' } }, res, assert.fail);
+
+    assert.equal(res.statusCode, 200);
+    assert.deepEqual(res.body, {
+        deviceId: 'pi-001',
+        rules: [
+            {
+                id: 77,
+                metricName: 'co2',
+                operator: '>=',
+                thresholdValue: 1000,
+                durationSeconds: 300,
+                enabled: true,
+                createdAt: '2026-04-27T13:00:00.000Z'
+            }
+        ]
+    });
+});
+
+test('replaceAlertRules forwards the payload and returns the saved rules', async () => {
+    const calls = [];
+    const controller = loadFresh('src/controllers/devices.controller.js', {
+        mocks: {
+            'src/services/devices.service.js': {
+                replaceAlertRules: async (payload) => {
+                    calls.push(payload);
+                    return [
+                        {
+                            id: 77,
+                            metric_name: 'co2',
+                            operator: '>=',
+                            threshold_value: 1000,
+                            duration_seconds: 300,
+                            enabled: true,
+                            created_at: '2026-04-27T13:00:00.000Z'
+                        }
+                    ];
+                }
+            }
+        }
+    });
+
+    const req = {
+        params: { deviceId: 'pi-001' },
+        body: {
+            rules: [
+                {
+                    metricName: 'co2',
+                    operator: '>=',
+                    thresholdValue: 1000,
+                    durationSeconds: 300,
+                    enabled: true
+                }
+            ]
+        }
+    };
+    const res = createResponse();
+
+    await controller.replaceAlertRules(req, res, assert.fail);
+
+    assert.deepEqual(calls, [{
+        deviceId: 'pi-001',
+        rules: [
+            {
+                metricName: 'co2',
+                operator: '>=',
+                thresholdValue: 1000,
+                durationSeconds: 300,
+                enabled: true
+            }
+        ]
+    }]);
+    assert.equal(res.statusCode, 200);
+    assert.deepEqual(res.body, {
+        message: 'Alert rules updated successfully',
+        deviceId: 'pi-001',
+        rules: [
+            {
+                id: 77,
+                metricName: 'co2',
+                operator: '>=',
+                thresholdValue: 1000,
+                durationSeconds: 300,
+                enabled: true,
+                createdAt: '2026-04-27T13:00:00.000Z'
+            }
+        ]
+    });
+});

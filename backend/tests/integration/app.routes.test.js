@@ -22,6 +22,12 @@ function loadApp({ deviceService, ingestService } = {}) {
                 },
                 getDeviceAlerts: async () => {
                     throw new Error('getDeviceAlerts stub not configured');
+                },
+                getAlertRules: async () => {
+                    throw new Error('getAlertRules stub not configured');
+                },
+                replaceAlertRules: async () => {
+                    throw new Error('replaceAlertRules stub not configured');
                 }
             },
             'src/services/ingest.service.js': ingestService || {
@@ -414,6 +420,184 @@ test('GET /devices/:deviceId/alerts returns active and recent resolved alerts', 
                     status: 'active',
                     message: 'CO2 exceeded threshold',
                     createdAt: '2026-04-23T10:01:00.000Z'
+                }
+            ]
+        });
+    });
+});
+
+test('GET /devices/:deviceId/rules returns device-specific alert rules', async () => {
+    const app = loadApp({
+        deviceService: {
+            registerDevice: async () => {
+                throw new Error('registerDevice should not be called');
+            },
+            listDevices: async () => {
+                throw new Error('listDevices should not be called');
+            },
+            getLatestDeviceSummary: async () => {
+                throw new Error('getLatestDeviceSummary should not be called');
+            },
+            getDeviceHistory: async () => {
+                throw new Error('getDeviceHistory should not be called');
+            },
+            getDeviceAlerts: async () => {
+                throw new Error('getDeviceAlerts should not be called');
+            },
+            getAlertRules: async () => ([
+                {
+                    id: 4,
+                    metric_name: 'co2',
+                    operator: '>=',
+                    threshold_value: 1000,
+                    duration_seconds: 300,
+                    enabled: true,
+                    created_at: '2026-04-27T13:00:00.000Z'
+                }
+            ]),
+            replaceAlertRules: async () => {
+                throw new Error('replaceAlertRules should not be called');
+            }
+        }
+    });
+
+    await withServer(app, async (baseUrl) => {
+        const response = await requestJson(baseUrl, '/devices/pi-001/rules');
+
+        assert.equal(response.status, 200);
+        assert.deepEqual(response.body, {
+            deviceId: 'pi-001',
+            rules: [
+                {
+                    id: 4,
+                    metricName: 'co2',
+                    operator: '>=',
+                    thresholdValue: 1000,
+                    durationSeconds: 300,
+                    enabled: true,
+                    createdAt: '2026-04-27T13:00:00.000Z'
+                }
+            ]
+        });
+    });
+});
+
+test('PUT /devices/:deviceId/rules rejects invalid rule payloads', async () => {
+    const app = loadApp();
+
+    await withServer(app, async (baseUrl) => {
+        const response = await requestJson(baseUrl, '/devices/pi-001/rules', {
+            method: 'PUT',
+            body: {
+                rules: [
+                    {
+                        metricName: 'noise',
+                        operator: '!=',
+                        thresholdValue: 'high',
+                        durationSeconds: -1,
+                        enabled: 'yes'
+                    }
+                ]
+            }
+        });
+
+        assert.equal(response.status, 400);
+        assert.ok(
+            response.body.details.some((detail) =>
+                detail.field === 'rules[0].metricName'
+                && detail.message === 'metricName must be one of: co2, voc, pm1_0, pm2_5, pm10, temperature, humidity'
+            )
+        );
+        assert.ok(
+            response.body.details.some((detail) =>
+                detail.field === 'rules[0].operator'
+                && detail.message === 'operator must be one of: >, >=, <, <=, ='
+            )
+        );
+        assert.ok(
+            response.body.details.some((detail) =>
+                detail.field === 'rules[0].thresholdValue'
+                && detail.message === 'thresholdValue must be a number'
+            )
+        );
+        assert.ok(
+            response.body.details.some((detail) =>
+                detail.field === 'rules[0].durationSeconds'
+                && detail.message === 'durationSeconds must be an integer greater than or equal to 0'
+            )
+        );
+        assert.ok(
+            response.body.details.some((detail) =>
+                detail.field === 'rules[0].enabled'
+                && detail.message === 'enabled must be a boolean'
+            )
+        );
+    });
+});
+
+test('PUT /devices/:deviceId/rules returns the saved frontend rule shape', async () => {
+    const app = loadApp({
+        deviceService: {
+            registerDevice: async () => {
+                throw new Error('registerDevice should not be called');
+            },
+            listDevices: async () => {
+                throw new Error('listDevices should not be called');
+            },
+            getLatestDeviceSummary: async () => {
+                throw new Error('getLatestDeviceSummary should not be called');
+            },
+            getDeviceHistory: async () => {
+                throw new Error('getDeviceHistory should not be called');
+            },
+            getDeviceAlerts: async () => {
+                throw new Error('getDeviceAlerts should not be called');
+            },
+            getAlertRules: async () => {
+                throw new Error('getAlertRules should not be called');
+            },
+            replaceAlertRules: async ({ deviceId, rules }) => rules.map((rule, index) => ({
+                id: index + 1,
+                metric_name: rule.metricName,
+                operator: rule.operator,
+                threshold_value: rule.thresholdValue,
+                duration_seconds: rule.durationSeconds,
+                enabled: rule.enabled,
+                created_at: '2026-04-27T13:00:00.000Z',
+                device_id: deviceId
+            }))
+        }
+    });
+
+    await withServer(app, async (baseUrl) => {
+        const response = await requestJson(baseUrl, '/devices/pi-001/rules', {
+            method: 'PUT',
+            body: {
+                rules: [
+                    {
+                        metricName: 'co2',
+                        operator: '>=',
+                        thresholdValue: 1000,
+                        durationSeconds: 300,
+                        enabled: true
+                    }
+                ]
+            }
+        });
+
+        assert.equal(response.status, 200);
+        assert.deepEqual(response.body, {
+            message: 'Alert rules updated successfully',
+            deviceId: 'pi-001',
+            rules: [
+                {
+                    id: 1,
+                    metricName: 'co2',
+                    operator: '>=',
+                    thresholdValue: 1000,
+                    durationSeconds: 300,
+                    enabled: true,
+                    createdAt: '2026-04-27T13:00:00.000Z'
                 }
             ]
         });

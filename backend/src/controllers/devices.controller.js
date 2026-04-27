@@ -26,6 +26,18 @@ function mapAlert(alert) {
     };
 }
 
+function mapAlertRule(rule) {
+    return {
+        id: rule.id,
+        metricName: rule.metric_name,
+        operator: rule.operator,
+        thresholdValue: rule.threshold_value,
+        durationSeconds: rule.duration_seconds,
+        enabled: rule.enabled,
+        createdAt: rule.created_at
+    };
+}
+
 async function registerDevice(req, res, next) {
     try {
         const { deviceId, locationLabel } = req.body;
@@ -156,10 +168,45 @@ async function getDeviceAlerts(req, res, next) {
     }
 }
 
+async function getAlertRules(req, res, next) {
+    try {
+        const { deviceId } = req.params;
+        const rules = await devicesService.getAlertRules(deviceId);
+
+        res.status(200).json({
+            deviceId,
+            rules: rules.map(mapAlertRule)
+        });
+    } catch (err) {
+        next(err);
+    }
+}
+
+async function replaceAlertRules(req, res, next) {
+    try {
+        const { deviceId } = req.params;
+        const { rules } = req.body;
+        const savedRules = await devicesService.replaceAlertRules({
+            deviceId,
+            rules
+        });
+
+        res.status(200).json({
+            message: 'Alert rules updated successfully',
+            deviceId,
+            rules: savedRules.map(mapAlertRule)
+        });
+    } catch (err) {
+        next(err);
+    }
+}
+
 module.exports = {
     registerDevice,
     listDevices,
     getLatestDeviceSummary,
     getDeviceHistory,
-    getDeviceAlerts
+    getDeviceAlerts,
+    getAlertRules,
+    replaceAlertRules
 };

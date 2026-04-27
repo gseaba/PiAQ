@@ -12,11 +12,30 @@ router.post(
         body('deviceId')
             .trim()
             .notEmpty()
-            .withMessage('deviceId is required'),
+            .withMessage('deviceId is required')
+            .isLength({ max: 100 })
+            .withMessage('deviceId must be 100 characters or fewer'),
 
         body('readings')
             .isArray({ min: 1 })
-            .withMessage('readings must be a non-empty array'),
+            .withMessage('readings must be a non-empty array')
+            .bail()
+            .custom((readings) => {
+                for (let index = 0; index < readings.length; index += 1) {
+                    const reading = readings[index];
+
+                    if (reading.windowStart && reading.windowEnd) {
+                        const windowStart = new Date(reading.windowStart);
+                        const windowEnd = new Date(reading.windowEnd);
+
+                        if (windowStart >= windowEnd) {
+                            throw new Error(`readings[${index}] windowEnd must be later than windowStart`);
+                        }
+                    }
+                }
+
+                return true;
+            }),
 
         body('readings.*.windowStart')
             .notEmpty()

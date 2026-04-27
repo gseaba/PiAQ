@@ -1,4 +1,5 @@
 const pool = require('../config/db');
+const { evaluateAlertsForDevice } = require('./alert.service');
 
 async function ingestBatch({ deviceId, readings }) {
     const client = await pool.connect();
@@ -93,6 +94,10 @@ async function ingestBatch({ deviceId, readings }) {
             `,
             [internalDeviceId]
         );
+
+        if (insertedRows.length > 0) {
+            await evaluateAlertsForDevice(client, internalDeviceId);
+        }
 
         await client.query(
             `
