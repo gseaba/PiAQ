@@ -22,4 +22,5 @@ class PMS5003Sensor:
             }
         except (RuntimeError, Exception) as e:
             # RuntimeError often happens on checksum failure; just try again next loop
+            print(f"Error: {e}")
             return None
