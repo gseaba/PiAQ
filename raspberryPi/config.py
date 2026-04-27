@@ -8,7 +8,7 @@ I2C_BUS = 1
 SPI_BUS = 0
 SPI_DEVICE = 0
 
-PMS5003_UART_PORT = "dev/serial0"
+PMS5003_UART_PORT = "/dev/serial0"
 PMS5003_BAUDRATE = 9600
 
 # Logging
