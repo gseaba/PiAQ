@@ -1,4 +1,4 @@
-require('dotenv').config();
+require('dotenv').config({ quiet: true });
 
 const pool = require('../config/db');
 const { evaluateAlertsForDevice } = require('../services/alert.service');
@@ -263,21 +263,14 @@ async function seedDevice(client, deviceConfig) {
 
 async function cleanupDemoDevices(client) {
     const deviceIds = DEMO_DEVICES.map((device) => device.deviceId);
-    const result = await client.query(
+
+    await client.query(
         `
-        SELECT id, device_id
-        FROM devices
+        DELETE FROM devices
         WHERE device_id = ANY($1::text[])
         `,
         [deviceIds]
     );
-
-    for (const device of result.rows) {
-        await client.query('DELETE FROM alerts WHERE device_id = $1', [device.id]);
-        await client.query('DELETE FROM alert_rules WHERE device_id = $1', [device.id]);
-        await client.query('DELETE FROM sensor_readings WHERE device_id = $1', [device.id]);
-        await client.query('DELETE FROM device_sync_state WHERE device_id = $1', [device.id]);
-    }
 }
 
 async function seedDemoData() {
@@ -320,4 +313,13 @@ async function seedDemoData() {
     }
 }
 
-seedDemoData();
+if (require.main === module) {
+    seedDemoData();
+}
+
+module.exports = {
+    DEMO_DEVICES,
+    RULE_SETS,
+    generateReadings,
+    seedDemoData
+};

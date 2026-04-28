@@ -29,6 +29,18 @@ router.post(
 
 router.get('/', devicesController.listDevices);
 
+router.post(
+    '/:deviceId/heartbeat',
+    [
+        param('deviceId')
+            .trim()
+            .notEmpty()
+            .withMessage('deviceId is required')
+    ],
+    validateRequest,
+    devicesController.recordDeviceHeartbeat
+);
+
 router.get(
     '/:deviceId/latest',
     [

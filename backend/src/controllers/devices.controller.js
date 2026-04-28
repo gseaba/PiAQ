@@ -201,6 +201,20 @@ async function replaceAlertRules(req, res, next) {
     }
 }
 
+async function recordDeviceHeartbeat(req, res, next) {
+    try {
+        const { deviceId } = req.params;
+        const device = await devicesService.recordDeviceHeartbeat(deviceId);
+
+        res.status(200).json({
+            message: 'Heartbeat recorded successfully',
+            device: mapDevice(device)
+        });
+    } catch (err) {
+        next(err);
+    }
+}
+
 module.exports = {
     registerDevice,
     listDevices,
@@ -208,5 +222,6 @@ module.exports = {
     getDeviceHistory,
     getDeviceAlerts,
     getAlertRules,
-    replaceAlertRules
+    replaceAlertRules,
+    recordDeviceHeartbeat
 };

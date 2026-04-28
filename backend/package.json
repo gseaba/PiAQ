@@ -1,8 +1,8 @@
 {
   "name": "backend",
   "version": "1.0.0",
-  "description": "initialize Node\r install Express and PostgreSQL packages\r create server.js and app.js\r add environment variable loading\r then set up migrations",
-  "main": "index.js",
+  "description": "PiAQ backend API for device registration, batched sensor ingest, dashboard queries, alerts, and demo seeding.",
+  "main": "src/server.js",
   "directories": {
     "test": "tests"
   },
