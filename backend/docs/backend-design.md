@@ -5,9 +5,11 @@
 The backend is responsible for:
 
 - registering devices
+- recording device heartbeats and online status
 - ingesting summarized sensor windows from Raspberry Pi devices
 - persisting sensor history in PostgreSQL
 - serving dashboard-ready latest, history, alert, and alert-rule endpoints
+- exposing a deployment/readiness health endpoint
 - evaluating threshold-based alerts after new readings are stored
 
 ## Core Tables
@@ -28,6 +30,10 @@ The backend is responsible for:
   "locationLabel": "Engineering Lab"
 }
 ```
+
+### `POST /devices/:deviceId/heartbeat`
+
+Marks the device as online and refreshes `lastSeenAt` without requiring a data batch upload.
 
 ### `POST /ingest/batch`
 
@@ -94,6 +100,10 @@ Replaces current device-specific alert rules with the provided array.
 }
 ```
 
+### `GET /system/health`
+
+Returns API health plus live database dependency status for deployment checks and demo sanity testing.
+
 ## Alert Semantics
 
 - Alert evaluation runs after new `sensor_readings` rows are inserted.
@@ -107,6 +117,6 @@ Replaces current device-specific alert rules with the provided array.
 - Replayed duplicate batches do not create duplicate alerts because duplicate reading windows are ignored and alert evaluation only reruns when new rows are inserted.
 - Delayed batches are supported because sync state uses the maximum uploaded `window_end` and alert evaluation is based on stored reading timestamps, not arrival time.
 
-## Current Integration Note
+## Deployment Notes
 
 The Raspberry Pi uploader in `raspberryPi/uploader/uploader.py` still posts a single raw reading to a different URL shape than `/ingest/batch`. The backend contract above is the confirmed server-side contract; the Pi client should be updated separately to match it.
