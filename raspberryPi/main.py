@@ -7,7 +7,8 @@ from datetime import datetime, timezone
 # Import your configuration
 from config import (
     SERVER_URL,
-    UPLOAD_INTERVAL,  # This should be your window size (e.g., 300 seconds)
+    UPLOAD_INTERVAL,
+    HEARTBEAT_INTERVAL,
     PMS5003_UART_PORT,
     PMS5003_BAUDRATE,
     DEVICE_ID,
@@ -66,6 +67,7 @@ def main():
     buffer = []
     window_start = datetime.now(timezone.utc).isoformat()
     last_upload_time = time.time()
+    last_heartbeat_time = last_upload_time
 
     while True:
         try:
@@ -110,8 +112,17 @@ def main():
                     logger.info(f"Uploaded window with {len(buffer)} samples.")
                     buffer = [] # Clear the buffer
                     window_start = window_end # Set new start time
+                    last_upload_time = current_time
+                    last_heartbeat_time = current_time
                 else:
                     logger.warning("Upload failed, keeping data in buffer for next attempt.")
+
+            elif current_time - last_heartbeat_time >= HEARTBEAT_INTERVAL:
+                if uploader.send_heartbeat(DEVICE_ID):
+                    logger.info(f"Heartbeat sent for {DEVICE_ID}.")
+                    last_heartbeat_time = current_time
+                else:
+                    logger.warning("Heartbeat failed; will retry on the next interval.")
 
         except Exception as e:
             logger.exception(f"Unexpected error in main loop: {e}")
