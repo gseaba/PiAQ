@@ -1,9 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Sparkles, AlertCircle, CheckCircle2, ChevronRight, Loader2 } from 'lucide-react';
 import { AirQualityData, Insight } from '../types';
 import { getAirQualityInsights } from '../services/geminiService';
 import { cn } from '../lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
+
+const REFRESH_MS = 5 * 60 * 1000;
 
 interface InsightsPanelProps {
   currentData: AirQualityData;
@@ -13,16 +15,52 @@ export const InsightsPanel: React.FC<InsightsPanelProps> = ({ currentData }) => 
   const [insights, setInsights] = useState<Insight[]>([]);
   const [loading, setLoading] = useState(false);
 
-  const fetchInsights = async () => {
+  const currentDataRef = useRef(currentData);
+  const loadingRef = useRef(false);
+  const mountedRef = useRef(true);
+
+  useEffect(() => {
+    currentDataRef.current = currentData;
+  }, [currentData]);
+
+  useEffect(() => {
+    loadingRef.current = loading;
+  }, [loading]);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
+  const fetchInsights = async (opts?: { forceRefresh?: boolean }) => {
+    if (loadingRef.current) return;
+
     setLoading(true);
-    const newInsights = await getAirQualityInsights(currentData);
-    setInsights(newInsights);
-    setLoading(false);
+    loadingRef.current = true;
+
+    const newInsights = await getAirQualityInsights(currentDataRef.current, opts);
+
+    if (mountedRef.current) {
+      setInsights(newInsights);
+      setLoading(false);
+    }
+
+    loadingRef.current = false;
   };
 
   useEffect(() => {
     fetchInsights();
   }, [currentData.timestamp]);
+
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      fetchInsights();
+    }, REFRESH_MS);
+
+    return () => window.clearInterval(id);
+  }, []);
 
   const getIcon = (type: Insight['type']) => {
     switch (type) {
@@ -40,7 +78,7 @@ export const InsightsPanel: React.FC<InsightsPanelProps> = ({ currentData }) => 
           <h3 className="text-sm font-medium text-zinc-400 uppercase tracking-widest">AI Insights</h3>
         </div>
         <button 
-          onClick={fetchInsights}
+          onClick={() => fetchInsights({ forceRefresh: true })}
           disabled={loading}
           className="p-2 hover:bg-white/5 rounded-full transition-colors disabled:opacity-50"
         >

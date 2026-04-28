@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { format, parseISO } from 'date-fns';
 import { 
   Wind, 
@@ -16,7 +16,7 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { AirQualityData } from './types';
 import { POLLUTANTS, getAqiLevel } from './constants';
-import { generateMockData } from './utils/mockData';
+import { getAirQualityHistory } from './services/airQualityService';
 import { AirQualityCard } from './components/AirQualityCard';
 import { AqiGauge } from './components/AqiGauge';
 import { HistoricalChart } from './components/HistoricalChart';
@@ -29,19 +29,29 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'history' | 'alerts'>('dashboard');
   const [isRefreshing, setIsRefreshing] = useState(false);
 
+  const mountedRef = useRef(true);
+
   const currentData = useMemo(() => data[data.length - 1], [data]);
   const aqiLevel = useMemo(() => currentData ? getAqiLevel(currentData.aqi) : null, [currentData]);
 
-  const refreshData = () => {
+  const refreshData = async (opts?: { forceRefresh?: boolean }) => {
     setIsRefreshing(true);
-    setTimeout(() => {
-      setData(generateMockData(24));
-      setIsRefreshing(false);
-    }, 800);
+    try {
+      const next = await getAirQualityHistory(24, opts);
+      if (mountedRef.current) setData(next);
+    } catch (err) {
+      console.error('Failed to refresh air quality data:', err);
+    } finally {
+      if (mountedRef.current) setIsRefreshing(false);
+    }
   };
 
   useEffect(() => {
-    setData(generateMockData(24));
+    mountedRef.current = true;
+    refreshData();
+    return () => {
+      mountedRef.current = false;
+    };
   }, []);
 
   if (!currentData) return null;
@@ -118,7 +128,7 @@ export default function App() {
             </div>
 
             <button 
-              onClick={refreshData}
+              onClick={() => refreshData({ forceRefresh: true })}
               disabled={isRefreshing}
               className="p-2.5 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 rounded-xl transition-all disabled:opacity-50"
             >
