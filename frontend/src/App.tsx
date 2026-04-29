@@ -15,32 +15,61 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { AirQualityData } from './types';
-import { POLLUTANTS, getAqiLevel } from './constants';
-import { getAirQualityHistory } from './services/airQualityService';
+import { POLLUTANTS } from './constants';
+import { getDeviceHistoryWindow, TimeWindow } from './services/airQualityService';
 import { AirQualityCard } from './components/AirQualityCard';
 import { AqiGauge } from './components/AqiGauge';
 import { HistoricalChart } from './components/HistoricalChart';
 import { InsightsPanel } from './components/InsightsPanel';
+import { AlertsBanner } from './components/AlertsBanner';
 import { cn } from './lib/utils';
 
 export default function App() {
+  const [deviceId] = useState('AU-9821-X');
   const [data, setData] = useState<AirQualityData[]>([]);
   const [selectedPollutant, setSelectedPollutant] = useState<keyof AirQualityData>('pm25');
+  const [timeWindow, setTimeWindow] = useState<TimeWindow>('1d');
+  const [timeWindowLabel, setTimeWindowLabel] = useState('Last 24 hours');
   const [activeTab, setActiveTab] = useState<'dashboard' | 'history' | 'alerts'>('dashboard');
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  const mountedRef = useRef(true);
+  const placeholderRef = useRef<AirQualityData>({
+    timestamp: new Date().toISOString(),
+    aqi: 0,
+    pm25: 0,
+    pm10: 0,
+    co: 0,
+    so2: 0,
+    no2: 0,
+    o3: 0,
+    co2: 0,
+    voc: 0,
+    temp: 0,
+    humidity: 0,
+  });
 
   const mountedRef = useRef(true);
 
   const currentData = useMemo(() => data[data.length - 1], [data]);
-  const aqiLevel = useMemo(() => currentData ? getAqiLevel(currentData.aqi) : null, [currentData]);
+  const hasData = !!currentData;
+  const displayCurrentData = currentData || placeholderRef.current;
 
   const refreshData = async (opts?: { forceRefresh?: boolean }) => {
     setIsRefreshing(true);
     try {
-      const next = await getAirQualityHistory(24, opts);
-      if (mountedRef.current) setData(next);
-    } catch (err) {
+      const res = await getDeviceHistoryWindow(deviceId, timeWindow, opts);
+      if (mountedRef.current) {
+        setLoadError(null);
+        setTimeWindowLabel(res.label);
+        setData(res.data);
+      }
+    } catch (err: any) {
       console.error('Failed to refresh air quality data:', err);
+      if (mountedRef.current) {
+        setLoadError(err?.message || 'Failed to reach backend');
+      }
     } finally {
       if (mountedRef.current) setIsRefreshing(false);
     }
@@ -54,7 +83,11 @@ export default function App() {
     };
   }, []);
 
-  if (!currentData) return null;
+  useEffect(() => {
+    if (!mountedRef.current) return;
+    refreshData();
+  }, [timeWindow]);
+
 
   return (
     <div className="min-h-screen bg-black text-zinc-300 font-sans selection:bg-indigo-500/30">
@@ -119,11 +152,15 @@ export default function App() {
             <div className="flex items-center gap-6 px-4 py-2 bg-zinc-900/50 rounded-2xl border border-zinc-800/50">
               <div className="flex items-center gap-2">
                 <Thermometer className="w-4 h-4 text-orange-400" />
-                <span className="text-sm font-medium text-white">{currentData.temp}°C</span>
+                <span className="text-sm font-medium text-white">
+                  {hasData ? `${displayCurrentData.temp}°C` : '--'}
+                </span>
               </div>
               <div className="flex items-center gap-2">
                 <Droplets className="w-4 h-4 text-blue-400" />
-                <span className="text-sm font-medium text-white">{currentData.humidity}%</span>
+                <span className="text-sm font-medium text-white">
+                  {hasData ? `${displayCurrentData.humidity}%` : '--'}
+                </span>
               </div>
             </div>
 
@@ -136,6 +173,35 @@ export default function App() {
             </button>
           </div>
         </header>
+
+        {(loadError || !hasData) && (
+          <div className="px-8 pt-4">
+            <div className={cn(
+              "rounded-2xl border px-4 py-3 backdrop-blur-md",
+              loadError ? "border-rose-500/30 bg-rose-500/10" : "border-amber-500/20 bg-amber-500/10"
+            )}>
+              <div className={cn(
+                "text-[10px] uppercase tracking-widest",
+                loadError ? "text-rose-200/80" : "text-amber-200/80"
+              )}>
+                {loadError ? (hasData ? 'Offline • showing cached data' : 'Offline • no data loaded yet') : 'Loading sensor data…'}
+              </div>
+              {loadError && (
+                <div className="mt-1 text-sm text-zinc-200/90">
+                  {loadError}
+                  <button
+                    onClick={() => refreshData({ forceRefresh: true })}
+                    className="ml-3 rounded-xl border border-zinc-800/60 bg-white/5 px-3 py-1 text-[10px] uppercase tracking-widest text-zinc-200 hover:bg-white/10"
+                  >
+                    Retry
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        <AlertsBanner deviceId={deviceId} />
 
         {/* Dashboard Content */}
         <div className="p-8 max-w-[1600px] mx-auto">
@@ -150,8 +216,21 @@ export default function App() {
               >
                 {/* Left Column: Gauge & Insights */}
                 <div className="lg:col-span-4 space-y-8">
-                  <AqiGauge aqi={currentData.aqi} />
-                  <InsightsPanel currentData={currentData} />
+                  <AqiGauge aqi={displayCurrentData.aqi} />
+                  {hasData ? (
+                    <InsightsPanel currentData={displayCurrentData} />
+                  ) : (
+                    <div className="p-6 bg-zinc-900/40 rounded-3xl border border-zinc-800/50 backdrop-blur-sm h-[500px] flex flex-col justify-center items-center text-center">
+                      <div className="text-xs uppercase tracking-widest text-zinc-500">No data yet</div>
+                      <div className="mt-2 text-sm text-zinc-400">Start the backend (and device ingest) to see live insights.</div>
+                      <button
+                        onClick={() => refreshData({ forceRefresh: true })}
+                        className="mt-4 rounded-2xl border border-zinc-800 bg-white/5 px-4 py-2 text-xs uppercase tracking-widest text-zinc-200 hover:bg-white/10"
+                      >
+                        Retry
+                      </button>
+                    </div>
+                  )}
                 </div>
 
                 {/* Right Column: Pollutants & Chart */}
@@ -162,38 +241,57 @@ export default function App() {
                       <AirQualityCard 
                         key={key} 
                         pollutant={pollutant} 
-                        value={currentData[key as keyof AirQualityData] as number} 
+                        value={displayCurrentData[key as keyof AirQualityData] as number} 
                       />
                     ))}
                   </div>
 
                   {/* Trends Section */}
                   <div className="space-y-4">
-                    <div className="flex items-center justify-between px-2">
+                    <div className="flex items-center justify-between px-2 gap-4 flex-wrap">
                       <div className="flex items-center gap-2">
                         <Activity className="w-4 h-4 text-indigo-400" />
                         <h2 className="text-sm font-medium uppercase tracking-widest text-zinc-400">Historical Trends</h2>
                       </div>
-                      <div className="flex bg-zinc-900/50 p-1 rounded-xl border border-zinc-800/50">
-                        {['pm25', 'co2', 'voc'].map((p) => (
-                          <button
-                            key={p}
-                            onClick={() => setSelectedPollutant(p as keyof AirQualityData)}
-                            className={cn(
-                              "px-3 py-1 rounded-lg text-[10px] uppercase tracking-widest font-bold transition-all",
-                              selectedPollutant === p ? "bg-indigo-600 text-white shadow-lg" : "text-zinc-500 hover:text-zinc-300"
-                            )}
-                          >
-                            {POLLUTANTS[p]?.name || p}
-                          </button>
-                        ))}
+
+                      <div className="flex items-center gap-3">
+                        <div className="flex bg-zinc-900/50 p-1 rounded-xl border border-zinc-800/50">
+                          {(['6h', '12h', '1d', '1w'] as TimeWindow[]).map((w) => (
+                            <button
+                              key={w}
+                              onClick={() => setTimeWindow(w)}
+                              className={cn(
+                                "px-3 py-1 rounded-lg text-[10px] uppercase tracking-widest font-bold transition-all",
+                                timeWindow === w ? "bg-white/10 text-white" : "text-zinc-500 hover:text-zinc-300"
+                              )}
+                            >
+                              {w}
+                            </button>
+                          ))}
+                        </div>
+
+                        <div className="flex bg-zinc-900/50 p-1 rounded-xl border border-zinc-800/50">
+                          {['pm25', 'co2', 'voc'].map((p) => (
+                            <button
+                              key={p}
+                              onClick={() => setSelectedPollutant(p as keyof AirQualityData)}
+                              className={cn(
+                                "px-3 py-1 rounded-lg text-[10px] uppercase tracking-widest font-bold transition-all",
+                                selectedPollutant === p ? "bg-indigo-600 text-white shadow-lg" : "text-zinc-500 hover:text-zinc-300"
+                              )}
+                            >
+                              {POLLUTANTS[p]?.name || p}
+                            </button>
+                          ))}
+                        </div>
                       </div>
                     </div>
-                    <HistoricalChart 
-                      data={data} 
-                      dataKey={selectedPollutant} 
-                      color="#6366f1" 
-                      label={POLLUTANTS[selectedPollutant as string]?.name || selectedPollutant as string} 
+                    <HistoricalChart
+                      data={data}
+                      dataKey={selectedPollutant}
+                      color="#6366f1"
+                      label={POLLUTANTS[selectedPollutant as string]?.name || (selectedPollutant as string)}
+                      windowLabel={timeWindowLabel}
                     />
                   </div>
                 </div>
@@ -208,16 +306,33 @@ export default function App() {
                 exit={{ opacity: 0, y: -20 }}
                 className="space-y-8"
               >
-                <div className="flex items-center gap-2 mb-8">
-                  <History className="w-6 h-6 text-indigo-400" />
-                  <h2 className="text-2xl font-bold text-white tracking-tight">Data History</h2>
+                <div className="flex items-center justify-between gap-4 mb-8 flex-wrap">
+                  <div className="flex items-center gap-2">
+                    <History className="w-6 h-6 text-indigo-400" />
+                    <h2 className="text-2xl font-bold text-white tracking-tight">Data History</h2>
+                  </div>
+
+                  <div className="flex bg-zinc-900/50 p-1 rounded-xl border border-zinc-800/50">
+                    {(['6h', '12h', '1d', '1w'] as TimeWindow[]).map((w) => (
+                      <button
+                        key={w}
+                        onClick={() => setTimeWindow(w)}
+                        className={cn(
+                          "px-3 py-1 rounded-lg text-[10px] uppercase tracking-widest font-bold transition-all",
+                          timeWindow === w ? "bg-white/10 text-white" : "text-zinc-500 hover:text-zinc-300"
+                        )}
+                      >
+                        {w}
+                      </button>
+                    ))}
+                  </div>
                 </div>
                 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                  <HistoricalChart data={data} dataKey="aqi" color="#10b981" label="AQI" />
-                  <HistoricalChart data={data} dataKey="pm25" color="#6366f1" label="PM2.5" />
-                  <HistoricalChart data={data} dataKey="co2" color="#f59e0b" label="CO2" />
-                  <HistoricalChart data={data} dataKey="voc" color="#8b5cf6" label="VOC" />
+                  <HistoricalChart data={data} dataKey="aqi" color="#10b981" label="AQI" windowLabel={timeWindowLabel} />
+                  <HistoricalChart data={data} dataKey="pm25" color="#6366f1" label="PM2.5" windowLabel={timeWindowLabel} />
+                  <HistoricalChart data={data} dataKey="co2" color="#f59e0b" label="CO2" windowLabel={timeWindowLabel} />
+                  <HistoricalChart data={data} dataKey="voc" color="#8b5cf6" label="VOC" windowLabel={timeWindowLabel} />
                 </div>
               </motion.div>
             )}
@@ -283,7 +398,7 @@ export default function App() {
             <span className="text-[10px] uppercase tracking-widest text-zinc-500">System Online</span>
           </div>
           <div className="w-px h-3 bg-zinc-800" />
-          <span className="text-[10px] uppercase tracking-widest text-zinc-500">Device ID: AU-9821-X</span>
+          <span className="text-[10px] uppercase tracking-widest text-zinc-500">Device ID: {deviceId}</span>
         </div>
         <span className="text-[10px] uppercase tracking-widest text-zinc-600 font-mono">
           Last Sync: {currentData ? format(parseISO(currentData.timestamp), 'HH:mm:ss') : '--:--:--'}
