@@ -13,6 +13,19 @@ export interface AirQualityData {
   humidity: number;
 }
 
+export type DeviceAlert = {
+  id: number | string;
+  metricName: string;
+  thresholdValue: number | null;
+  comparisonOperator: string | null;
+  startedAt: string;
+  endedAt: string | null;
+  peakValue: number | null;
+  status: 'active' | 'resolved' | string;
+  message: string;
+  createdAt: string;
+};
+
 export interface PollutantInfo {
   name: string;
   label: string;
