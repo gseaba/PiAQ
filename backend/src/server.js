@@ -1,11 +1,19 @@
-require('dotenv').config();
+require('dotenv').config({ quiet: true });
 
 const app = require('./app');
 
 const PORT = process.env.PORT || 5001;
 
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-});
+function startServer(port = PORT) {
+    return app.listen(port, () => {
+        console.log(`Server running on port ${port}`);
+    });
+}
 
-console.log('PORT from env:', process.env.PORT);
+if (require.main === module) {
+    startServer();
+}
+
+module.exports = {
+    startServer
+};

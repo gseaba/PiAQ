@@ -1,35 +1,5 @@
 const pool = require('../config/db');
-
-const HISTORY_METRICS = {
-    co2: {
-        sourceColumn: 'co2_avg',
-        maxColumn: 'co2_max'
-    },
-    voc: {
-        sourceColumn: 'voc_avg',
-        maxColumn: 'voc_max'
-    },
-    pm1_0: {
-        sourceColumn: 'pm1_0_avg',
-        maxColumn: 'pm1_0_avg'
-    },
-    pm2_5: {
-        sourceColumn: 'pm2_5_avg',
-        maxColumn: 'pm2_5_avg'
-    },
-    pm10: {
-        sourceColumn: 'pm10_avg',
-        maxColumn: 'pm10_avg'
-    },
-    temperature: {
-        sourceColumn: 'temperature',
-        maxColumn: 'temperature'
-    },
-    humidity: {
-        sourceColumn: 'humidity',
-        maxColumn: 'humidity'
-    }
-};
+const { HISTORY_METRICS } = require('../constants/metrics');
 
 function parseBucketToSeconds(bucket) {
     const matches = /^(\d+)([mhd])$/.exec(bucket);
@@ -51,8 +21,8 @@ function parseBucketToSeconds(bucket) {
     return amount * unitMultiplier[unit];
 }
 
-async function getDeviceByDeviceId(deviceId) {
-    const result = await pool.query(
+async function getDeviceByDeviceIdWithExecutor(executor, deviceId) {
+    const result = await executor.query(
         `
         SELECT id, device_id, location_label, status, registered_at, last_seen_at
         FROM devices
@@ -68,6 +38,10 @@ async function getDeviceByDeviceId(deviceId) {
     }
 
     return result.rows[0];
+}
+
+async function getDeviceByDeviceId(deviceId) {
+    return getDeviceByDeviceIdWithExecutor(pool, deviceId);
 }
 
 async function registerDevice({ deviceId, locationLabel }) {
@@ -98,6 +72,27 @@ async function listDevices() {
     return result.rows;
 }
 
+async function recordDeviceHeartbeat(deviceId) {
+    const result = await pool.query(
+        `
+        UPDATE devices
+        SET status = 'online',
+            last_seen_at = NOW()
+        WHERE device_id = $1
+        RETURNING id, device_id, location_label, status, registered_at, last_seen_at
+        `,
+        [deviceId]
+    );
+
+    if (result.rows.length === 0) {
+        const error = new Error(`Unknown deviceId: ${deviceId}`);
+        error.status = 404;
+        throw error;
+    }
+
+    return result.rows[0];
+}
+
 async function getLatestDeviceSummary(deviceId) {
     const device = await getDeviceByDeviceId(deviceId);
     const result = await pool.query(
@@ -106,15 +101,15 @@ async function getLatestDeviceSummary(deviceId) {
             window_start,
             window_end,
             sample_count,
-            co2_avg,
-            co2_max,
-            voc_avg,
-            voc_max,
-            pm1_0_avg,
-            pm2_5_avg,
-            pm10_avg,
-            temperature,
-            humidity
+            co2_avg::float8 AS co2_avg,
+            co2_max::float8 AS co2_max,
+            voc_avg::float8 AS voc_avg,
+            voc_max::float8 AS voc_max,
+            pm1_0_avg::float8 AS pm1_0_avg,
+            pm2_5_avg::float8 AS pm2_5_avg,
+            pm10_avg::float8 AS pm10_avg,
+            temperature::float8 AS temperature,
+            humidity::float8 AS humidity
         FROM sensor_readings
         WHERE device_id = $1
         ORDER BY window_end DESC, window_start DESC
@@ -213,11 +208,11 @@ async function getDeviceAlerts({ deviceId, status }) {
             SELECT
                 id,
                 metric_name,
-                threshold_value,
+                threshold_value::float8 AS threshold_value,
                 comparison_operator,
                 started_at,
                 ended_at,
-                peak_value,
+                peak_value::float8 AS peak_value,
                 status,
                 message,
                 created_at
@@ -238,11 +233,11 @@ async function getDeviceAlerts({ deviceId, status }) {
             SELECT
                 id,
                 metric_name,
-                threshold_value,
+                threshold_value::float8 AS threshold_value,
                 comparison_operator,
                 started_at,
                 ended_at,
-                peak_value,
+                peak_value::float8 AS peak_value,
                 status,
                 message,
                 created_at
@@ -258,11 +253,11 @@ async function getDeviceAlerts({ deviceId, status }) {
             SELECT
                 id,
                 metric_name,
-                threshold_value,
+                threshold_value::float8 AS threshold_value,
                 comparison_operator,
                 started_at,
                 ended_at,
-                peak_value,
+                peak_value::float8 AS peak_value,
                 status,
                 message,
                 created_at
@@ -279,10 +274,102 @@ async function getDeviceAlerts({ deviceId, status }) {
     return [...activeAlerts.rows, ...resolvedAlerts.rows];
 }
 
+async function getAlertRules(deviceId) {
+    const device = await getDeviceByDeviceId(deviceId);
+    const result = await pool.query(
+        `
+        SELECT
+            id,
+            metric_name,
+            operator,
+            threshold_value::float8 AS threshold_value,
+            duration_seconds,
+            enabled,
+            created_at
+        FROM alert_rules
+        WHERE device_id = $1
+        ORDER BY metric_name ASC, threshold_value ASC, duration_seconds ASC, id ASC
+        `,
+        [device.id]
+    );
+
+    return result.rows;
+}
+
+async function replaceAlertRules({ deviceId, rules }) {
+    const client = await pool.connect();
+
+    try {
+        await client.query('BEGIN');
+
+        const device = await getDeviceByDeviceIdWithExecutor(client, deviceId);
+
+        await client.query(
+            `
+            DELETE FROM alert_rules
+            WHERE device_id = $1
+            `,
+            [device.id]
+        );
+
+        for (const rule of rules) {
+            await client.query(
+                `
+                INSERT INTO alert_rules (
+                    device_id,
+                    metric_name,
+                    operator,
+                    threshold_value,
+                    duration_seconds,
+                    enabled
+                )
+                VALUES ($1, $2, $3, $4, $5, $6)
+                `,
+                [
+                    device.id,
+                    rule.metricName,
+                    rule.operator,
+                    rule.thresholdValue,
+                    rule.durationSeconds,
+                    rule.enabled
+                ]
+            );
+        }
+
+        const savedRules = await client.query(
+            `
+            SELECT
+                id,
+                metric_name,
+                operator,
+                threshold_value::float8 AS threshold_value,
+                duration_seconds,
+                enabled,
+                created_at
+            FROM alert_rules
+            WHERE device_id = $1
+            ORDER BY metric_name ASC, threshold_value ASC, duration_seconds ASC, id ASC
+            `,
+            [device.id]
+        );
+
+        await client.query('COMMIT');
+        return savedRules.rows;
+    } catch (error) {
+        await client.query('ROLLBACK');
+        throw error;
+    } finally {
+        client.release();
+    }
+}
+
 module.exports = {
     registerDevice,
     listDevices,
+    recordDeviceHeartbeat,
     getLatestDeviceSummary,
     getDeviceHistory,
-    getDeviceAlerts
+    getDeviceAlerts,
+    getAlertRules,
+    replaceAlertRules
 };

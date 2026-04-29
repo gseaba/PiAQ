@@ -55,6 +55,46 @@ test('ingestBatch inserts new readings, skips duplicates, and updates device syn
                 return { rows: [] };
             }
 
+            if (/FROM alert_rules/i.test(query)) {
+                return {
+                    rows: [
+                        {
+                            id: 11,
+                            device_id: 42,
+                            metric_name: 'co2',
+                            operator: '>=',
+                            threshold_value: 1000,
+                            duration_seconds: 0,
+                            enabled: true
+                        }
+                    ]
+                };
+            }
+
+            if (/SELECT\s+window_start,\s+window_end/i.test(query) && /FROM sensor_readings/i.test(query)) {
+                return {
+                    rows: [
+                        {
+                            window_start: '2026-04-23T10:00:00.000Z',
+                            window_end: '2026-04-23T10:05:00.000Z',
+                            co2_avg: 610.4,
+                            co2_max: 1105.2,
+                            voc_avg: 112.5,
+                            voc_max: 150.1,
+                            pm1_0_avg: 2.2,
+                            pm2_5_avg: 3.5,
+                            pm10_avg: 4.1,
+                            temperature: 21.8,
+                            humidity: 47.3
+                        }
+                    ]
+                };
+            }
+
+            if (/DELETE FROM alerts/i.test(query) || /INSERT INTO alerts/i.test(query)) {
+                return { rows: [] };
+            }
+
             throw new Error(`Unexpected query: ${query}`);
         },
         release: () => {
@@ -116,6 +156,9 @@ test('ingestBatch inserts new readings, skips duplicates, and updates device syn
 
     assert.deepEqual(syncStateCall.values, [42]);
     assert.deepEqual(updateDeviceCall.values, [42]);
+    assert.ok(calls.some((call) => /FROM alert_rules/i.test(call.query)));
+    assert.ok(calls.some((call) => /DELETE FROM alerts/i.test(call.query)));
+    assert.ok(calls.some((call) => /INSERT INTO alerts/i.test(call.query)));
     assert.equal(calls.at(-1).query, 'COMMIT');
 });
 
@@ -164,6 +207,62 @@ test('ingestBatch rolls back and throws a 404 when the device is unknown', async
 
     assert.equal(calls.at(-1).query, 'ROLLBACK');
     assert.equal(released, true);
+});
+
+test('ingestBatch skips alert reevaluation when a retried delayed batch contains only duplicates', async () => {
+    const calls = [];
+    let released = false;
+
+    const client = {
+        query: async (query, values) => {
+            calls.push({ query, values });
+
+            if (query === 'BEGIN' || query === 'COMMIT') {
+                return {};
+            }
+
+            if (/SELECT id, device_id FROM devices/i.test(query)) {
+                return { rows: [{ id: 42, device_id: 'pi-001' }] };
+            }
+
+            if (/INSERT INTO sensor_readings/i.test(query)) {
+                return { rows: [] };
+            }
+
+            if (/INSERT INTO device_sync_state/i.test(query) || /UPDATE devices/i.test(query)) {
+                return { rows: [] };
+            }
+
+            throw new Error(`Unexpected query: ${query}`);
+        },
+        release: () => {
+            released = true;
+        }
+    };
+
+    const service = loadFresh('src/services/ingest.service.js', {
+        mocks: {
+            'src/config/db.js': {
+                connect: async () => client
+            }
+        }
+    });
+
+    const result = await service.ingestBatch({
+        deviceId: 'pi-001',
+        readings: [createReading()]
+    });
+
+    assert.deepEqual(result, {
+        deviceId: 'pi-001',
+        receivedCount: 1,
+        insertedCount: 0,
+        duplicateCount: 1
+    });
+    assert.equal(released, true);
+    assert.equal(calls.some((call) => /FROM alert_rules/i.test(call.query)), false);
+    assert.equal(calls.some((call) => /INSERT INTO alerts/i.test(call.query)), false);
+    assert.equal(calls.at(-1).query, 'COMMIT');
 });
 
 test('ingestBatch rolls back and releases the client when an insert fails', async () => {
