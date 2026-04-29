@@ -17,6 +17,14 @@ import { motion, AnimatePresence } from 'motion/react';
 import { AirQualityData } from './types';
 import { POLLUTANTS } from './constants';
 import { getDeviceHistoryWindow, TimeWindow } from './services/airQualityService';
+
+// Helper to fetch device list
+async function fetchDevices() {
+  const res = await fetch((import.meta as any).env?.VITE_API_URL + '/devices');
+  if (!res.ok) throw new Error('Failed to fetch devices');
+  const data = await res.json();
+  return data.devices || [];
+}
 import { AirQualityCard } from './components/AirQualityCard';
 import { AqiGauge } from './components/AqiGauge';
 import { HistoricalChart } from './components/HistoricalChart';
@@ -25,7 +33,8 @@ import { AlertsBanner } from './components/AlertsBanner';
 import { cn } from './lib/utils';
 
 export default function App() {
-  const [deviceId] = useState('AU-9821-X');
+  const [deviceId, setDeviceId] = useState<string>('');
+  const [devices, setDevices] = useState<Array<{ deviceId: string; locationLabel?: string }>>([]);
   const [data, setData] = useState<AirQualityData[]>([]);
   const [selectedPollutant, setSelectedPollutant] = useState<keyof AirQualityData>('pm25');
   const [timeWindow, setTimeWindow] = useState<TimeWindow>('1d');
@@ -73,22 +82,57 @@ export default function App() {
     }
   };
 
+
+  // Fetch device list on mount
   useEffect(() => {
+    let ignore = false;
     mountedRef.current = true;
-    refreshData();
+    fetchDevices()
+      .then((list) => {
+        if (!ignore) {
+          setDevices(list);
+          // Set default deviceId to first device if not set
+          if (list.length && !deviceId) setDeviceId(list[0].deviceId);
+        }
+      })
+      .catch(() => {});
     return () => {
       mountedRef.current = false;
+      ignore = true;
     };
   }, []);
 
+  // Refresh data when deviceId changes
   useEffect(() => {
-    if (!mountedRef.current) return;
+    if (deviceId) refreshData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [deviceId]);
+
+  useEffect(() => {
+    if (!mountedRef.current || !deviceId) return;
     refreshData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [timeWindow]);
 
 
   return (
     <div className="min-h-screen bg-black text-zinc-300 font-sans selection:bg-indigo-500/30">
+      {/* Device Selector Dropdown */}
+      <div className="w-full flex justify-center py-4 bg-zinc-950/80 border-b border-zinc-800/50">
+        <label className="mr-2 text-sm text-zinc-400">Device:</label>
+        <select
+          className="rounded-lg px-3 py-1 bg-zinc-900 text-zinc-200 border border-zinc-700 focus:outline-none focus:ring focus:border-indigo-500"
+          value={deviceId}
+          onChange={e => setDeviceId(e.target.value)}
+          disabled={!devices.length}
+        >
+          {devices.map((d) => (
+            <option key={d.deviceId} value={d.deviceId}>
+              {d.locationLabel ? `${d.locationLabel} (${d.deviceId})` : d.deviceId}
+            </option>
+          ))}
+        </select>
+      </div>
       {/* Sidebar Navigation */}
       <aside className="fixed left-0 top-0 bottom-0 w-20 border-r border-zinc-800/50 bg-zinc-950/50 backdrop-blur-xl z-50 flex flex-col items-center py-8 gap-8">
         <div className="w-10 h-10 bg-indigo-600 rounded-2xl flex items-center justify-center shadow-[0_0_20px_rgba(79,70,229,0.4)]">
