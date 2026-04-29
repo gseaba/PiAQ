@@ -16,9 +16,9 @@ class PMS5003Sensor:
 
             # Mapping to the keys your backend expects
             return {
-                "pm1_0": data["pm10 env"],   # 1.0 micron
-                "pm2_5": data["pm25 env"],   # 2.5 micron
-                "pm10":  data["pm100 env"]   # 10.0 micron
+                "pm1_0": data["pm10 standard"],   # 1.0 micron
+                "pm2_5": data["pm25 standard"],   # 2.5 micron
+                "pm10":  data["pm100 standard"]   # 10.0 micron
             }
         except (RuntimeError, Exception) as e:
             # RuntimeError often happens on checksum failure; just try again next loop
