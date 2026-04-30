@@ -1,6 +1,6 @@
 # Configuration settings
 
-SERVER_URL = "http://10.0.0.1:5001"  # Private WireGuard IP
+SERVER_URL = "http://10.10.10.1:5001"  # Private WireGuard IP
 UPLOAD_INTERVAL = 60  # Seconds between uploads
 HEARTBEAT_INTERVAL = 30  # Seconds between heartbeat refreshes while buffering data
 
