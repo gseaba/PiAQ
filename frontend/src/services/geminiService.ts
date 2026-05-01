@@ -25,8 +25,9 @@ const buildPrompt = (currentData: AirQualityData) => `
   Current Data:
   - AQI: ${currentData.aqi}
   - PM2.5: ${currentData.pm25} µg/m³
-  - CO: ${currentData.co} ppm
+  - PM10: ${currentData.pm10} µg/m³
   - CO2: ${currentData.co2} ppm
+  - VOC: ${currentData.voc} ppb
   - Humidity: ${currentData.humidity}%
   - Temperature: ${currentData.temp}°C
   

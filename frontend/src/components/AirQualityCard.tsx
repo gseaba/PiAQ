@@ -1,6 +1,6 @@
 import React from 'react';
 import { PollutantInfo } from '../types';
-import { cn } from '../lib/utils';
+import { cn, formatNumber } from '../lib/utils';
 import { motion } from 'motion/react';
 import * as Icons from 'lucide-react';
 import { POLLUTANTS } from '../constants';
@@ -48,7 +48,7 @@ export const AirQualityCard: React.FC<AirQualityCardProps> = ({ pollutant, value
       </div>
       
       <div className="flex items-baseline gap-2">
-        <span className="text-4xl font-light tracking-tight text-white">{value}</span>
+        <span className="text-4xl font-light tracking-tight text-white">{formatNumber(value)}</span>
         <span className="text-sm text-zinc-500 font-mono">{pollutant.unit}</span>
       </div>
 

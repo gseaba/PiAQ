@@ -1,7 +1,7 @@
 import React from 'react';
 import { motion } from 'motion/react';
 import { getAqiLevel } from '../constants';
-import { cn } from '../lib/utils';
+import { formatNumber } from '../lib/utils';
 
 interface AqiGaugeProps {
   aqi: number;
@@ -35,7 +35,7 @@ export const AqiGauge: React.FC<AqiGaugeProps> = ({ aqi }) => {
           className="flex flex-col items-center"
         >
           <span className="text-8xl font-black tracking-tighter text-white tabular-nums leading-none">
-            {aqi}
+            {formatNumber(aqi)}
           </span>
           <div 
             className="mt-4 px-4 py-1.5 rounded-full text-sm font-bold uppercase tracking-widest border transition-all duration-500"
@@ -51,8 +51,8 @@ export const AqiGauge: React.FC<AqiGaugeProps> = ({ aqi }) => {
 
         <div className="mt-12 w-full max-w-md">
           <div className="flex justify-between text-[10px] text-zinc-600 uppercase tracking-widest mb-2 font-mono">
-            <span>0</span>
-            <span>500</span>
+            <span>{formatNumber(0)}</span>
+            <span>{formatNumber(500)}</span>
           </div>
           <div className="h-2 w-full bg-zinc-800 rounded-full relative overflow-hidden">
             <motion.div

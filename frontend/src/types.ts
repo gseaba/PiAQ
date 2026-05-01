@@ -3,10 +3,6 @@ export interface AirQualityData {
   aqi: number;
   pm25: number;
   pm10: number;
-  co: number;
-  so2: number;
-  no2: number;
-  o3: number;
   co2: number;
   voc: number;
   temp: number;

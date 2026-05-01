@@ -20,6 +20,7 @@ const getHistoryTtlMs = (window: TimeWindow): number => {
 
 const HISTORY_CACHE_PREFIX = 'piaq:devices:history:v1:';
 const ALERTS_CACHE_PREFIX = 'piaq:devices:alerts:v1:';
+const LATEST_CACHE_PREFIX = 'piaq:devices:latest:v1:';
 
 type BackendMetricName = 'co2' | 'voc' | 'pm1_0' | 'pm2_5' | 'pm10' | 'temperature' | 'humidity';
 
@@ -42,6 +43,22 @@ type BackendHistoryResponse =
       range: { start: string; end: string; bucket: string };
       metrics: Record<BackendMetricName, BackendHistoryPoint[]>;
     };
+
+type BackendLatestResponse = {
+  deviceId: string;
+  latest: null | {
+    windowStart: string;
+    windowEnd: string;
+    sampleCount: number;
+    metrics: Record<
+      BackendMetricName,
+      {
+        avg: number;
+        max: number;
+      }
+    >;
+  };
+};
 
 const API_BASE = (import.meta as any).env?.VITE_API_URL || '';
 
@@ -89,10 +106,6 @@ const emptyPoint = (timestamp: string): AirQualityData => ({
   aqi: 0,
   pm25: 0,
   pm10: 0,
-  co: 0,
-  so2: 0,
-  no2: 0,
-  o3: 0,
   co2: 0,
   voc: 0,
   temp: 0,
@@ -131,9 +144,6 @@ const mergeMetricsToAirQualityData = (metrics: Record<string, BackendHistoryPoin
           break;
         case 'humidity':
           row.humidity = p.avg;
-          break;
-        case 'pm1_0':
-          // Not currently visualized in UI; keep as-is.
           break;
       }
     }
@@ -175,6 +185,33 @@ export const getDeviceHistoryWindow = async (
   }
 
   return { label: cfg.label, data: mergeMetricsToAirQualityData(res.metrics) };
+};
+
+const mapLatestToAirQualityData = (latest: NonNullable<BackendLatestResponse['latest']>): AirQualityData => {
+  const data = emptyPoint(latest.windowEnd);
+  data.co2 = latest.metrics.co2?.avg ?? 0;
+  data.voc = latest.metrics.voc?.avg ?? 0;
+  data.pm25 = latest.metrics.pm2_5?.avg ?? 0;
+  data.pm10 = latest.metrics.pm10?.avg ?? 0;
+  data.temp = latest.metrics.temperature?.avg ?? 0;
+  data.humidity = latest.metrics.humidity?.avg ?? 0;
+  data.aqi = aqiFromPm25(data.pm25);
+  return data;
+};
+
+export const getDeviceLatestSummary = async (
+  deviceId: string,
+  opts?: { forceRefresh?: boolean }
+): Promise<AirQualityData | null> => {
+  const key = `${LATEST_CACHE_PREFIX}${deviceId}`;
+  const res = await sessionCacheFetch(
+    key,
+    60 * 1000,
+    async () => fetchJson<BackendLatestResponse>(`/devices/${encodeURIComponent(deviceId)}/latest`),
+    opts
+  );
+  if (!res.latest) return null;
+  return mapLatestToAirQualityData(res.latest);
 };
 
 export const getDeviceAlerts = async (

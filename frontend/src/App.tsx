@@ -1,5 +1,4 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { format, parseISO } from 'date-fns';
 import { 
   Wind, 
   Activity, 
@@ -16,7 +15,7 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { AirQualityData } from './types';
 import { POLLUTANTS } from './constants';
-import { getDeviceHistoryWindow, TimeWindow } from './services/airQualityService';
+import { getDeviceHistoryWindow, getDeviceLatestSummary, TimeWindow } from './services/airQualityService';
 
 // Helper to fetch device list
 async function fetchDevices() {
@@ -30,18 +29,54 @@ import { AqiGauge } from './components/AqiGauge';
 import { HistoricalChart } from './components/HistoricalChart';
 import { InsightsPanel } from './components/InsightsPanel';
 import { AlertsBanner } from './components/AlertsBanner';
-import { cn } from './lib/utils';
+import { cn, formatNumber, formatTimestamp } from './lib/utils';
+
+type UserSettings = {
+  temperatureUnit: 'C' | 'F';
+  refreshIntervalMinutes: number;
+  timezone: 'local' | 'UTC';
+};
+
+const SETTINGS_KEY = 'piaq:userSettings:v1';
+
+const DEFAULT_SETTINGS: UserSettings = {
+  temperatureUnit: 'C',
+  refreshIntervalMinutes: 5,
+  timezone: 'local'
+};
+
+const loadSettings = (): UserSettings => {
+  try {
+    const raw = localStorage.getItem(SETTINGS_KEY);
+    if (!raw) return DEFAULT_SETTINGS;
+    const parsed = JSON.parse(raw) as Partial<UserSettings>;
+    return {
+      temperatureUnit: parsed.temperatureUnit === 'F' ? 'F' : 'C',
+      refreshIntervalMinutes: typeof parsed.refreshIntervalMinutes === 'number' && parsed.refreshIntervalMinutes > 0
+        ? parsed.refreshIntervalMinutes
+        : DEFAULT_SETTINGS.refreshIntervalMinutes,
+      timezone: parsed.timezone === 'UTC' ? 'UTC' : 'local'
+    };
+  } catch {
+    return DEFAULT_SETTINGS;
+  }
+};
 
 export default function App() {
   const [deviceId, setDeviceId] = useState<string>('');
   const [devices, setDevices] = useState<Array<{ deviceId: string; locationLabel?: string }>>([]);
   const [data, setData] = useState<AirQualityData[]>([]);
+  const [latestData, setLatestData] = useState<AirQualityData | null>(null);
+  const [averages, setAverages] = useState<Record<string, number | null> | null>(null);
+  const [averagesLabel, setAveragesLabel] = useState('Last 12 hours');
   const [selectedPollutant, setSelectedPollutant] = useState<keyof AirQualityData>('pm25');
   const [timeWindow, setTimeWindow] = useState<TimeWindow>('1d');
   const [timeWindowLabel, setTimeWindowLabel] = useState('Last 24 hours');
   const [activeTab, setActiveTab] = useState<'dashboard' | 'history' | 'alerts'>('dashboard');
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [settings, setSettings] = useState<UserSettings>(() => loadSettings());
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
   const mountedRef = useRef(true);
   const placeholderRef = useRef<AirQualityData>({
@@ -49,19 +84,57 @@ export default function App() {
     aqi: 0,
     pm25: 0,
     pm10: 0,
-    co: 0,
-    so2: 0,
-    no2: 0,
-    o3: 0,
     co2: 0,
     voc: 0,
     temp: 0,
     humidity: 0,
   });
 
-  const currentData = useMemo(() => data[data.length - 1], [data]);
+  const currentData = useMemo(() => latestData ?? data[data.length - 1], [latestData, data]);
+  const chartData = useMemo(() => {
+    if (!latestData) return data;
+    if (data.length === 0) return [latestData];
+
+    const latestMs = Date.parse(latestData.timestamp);
+    if (Number.isNaN(latestMs)) return data;
+
+    const byTimestamp = new Map<string, AirQualityData>();
+    for (const row of data) byTimestamp.set(row.timestamp, row);
+    byTimestamp.set(latestData.timestamp, latestData);
+
+    return [...byTimestamp.values()].sort(
+      (a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp)
+    );
+  }, [data, latestData]);
   const hasData = !!currentData;
   const displayCurrentData = currentData || placeholderRef.current;
+
+  const temperatureUnitLabel = settings.temperatureUnit === 'F' ? '°F' : '°C';
+  const toDisplayTemp = (celsiusValue: number) =>
+    settings.temperatureUnit === 'F' ? (celsiusValue * 9) / 5 + 32 : celsiusValue;
+
+  const computeAverages = (rows: AirQualityData[]) => {
+    const keys: Array<keyof AirQualityData> = ['pm25', 'pm10', 'co2', 'voc', 'temp', 'humidity'];
+    const totals: Record<string, { sum: number; count: number }> = {};
+    for (const key of keys) totals[key] = { sum: 0, count: 0 };
+
+    for (const row of rows) {
+      for (const key of keys) {
+        const value = row[key];
+        if (typeof value === 'number' && !Number.isNaN(value)) {
+          totals[key].sum += value;
+          totals[key].count += 1;
+        }
+      }
+    }
+
+    const averagesResult: Record<string, number | null> = {};
+    for (const key of keys) {
+      const { sum, count } = totals[key];
+      averagesResult[key] = count ? sum / count : null;
+    }
+    return averagesResult;
+  };
 
   const refreshData = async (opts?: { forceRefresh?: boolean }) => {
     setIsRefreshing(true);
@@ -81,6 +154,38 @@ export default function App() {
       if (mountedRef.current) setIsRefreshing(false);
     }
   };
+
+  const refreshLatest = async (opts?: { forceRefresh?: boolean }) => {
+    try {
+      const latest = await getDeviceLatestSummary(deviceId, opts);
+      if (!mountedRef.current) return;
+      if (latest) {
+        setLatestData(latest);
+      }
+    } catch (err) {
+      console.warn('Failed to refresh latest data:', err);
+    }
+  };
+
+  const refreshAverages = async (opts?: { forceRefresh?: boolean }) => {
+    try {
+      const res = await getDeviceHistoryWindow(deviceId, timeWindow, opts);
+      if (!mountedRef.current) return;
+      setAveragesLabel(res.label);
+      setAverages(computeAverages(res.data));
+    } catch (err) {
+      console.warn('Failed to refresh averages:', err);
+      if (mountedRef.current) setAverages(null);
+    }
+  };
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+    } catch {
+      // ignore
+    }
+  }, [settings]);
 
 
   // Fetch device list on mount
@@ -104,16 +209,40 @@ export default function App() {
 
   // Refresh data when deviceId changes
   useEffect(() => {
-    if (deviceId) refreshData();
+    if (deviceId) {
+      setLatestData(null);
+      setAverages(null);
+      refreshData();
+      refreshLatest();
+      refreshAverages();
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [deviceId]);
 
   useEffect(() => {
     if (!mountedRef.current || !deviceId) return;
     refreshData();
+    refreshAverages();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [timeWindow]);
 
+  useEffect(() => {
+    if (!deviceId) return;
+    const id = window.setInterval(() => {
+      refreshLatest();
+    }, 60_000);
+    return () => window.clearInterval(id);
+  }, [deviceId]);
+
+  useEffect(() => {
+    if (!deviceId) return;
+    const intervalMs = Math.max(1, settings.refreshIntervalMinutes) * 60 * 1000;
+    const id = window.setInterval(() => {
+      refreshData();
+      refreshAverages();
+    }, intervalMs);
+    return () => window.clearInterval(id);
+  }, [deviceId, timeWindow, settings.refreshIntervalMinutes]);
 
   return (
     <div className="min-h-screen bg-black text-zinc-300 font-sans selection:bg-indigo-500/30">
@@ -142,6 +271,7 @@ export default function App() {
         <nav className="flex flex-col gap-4">
           <button 
             onClick={() => setActiveTab('dashboard')}
+            aria-label="Open dashboard tab"
             className={cn(
               "p-3 rounded-xl transition-all duration-300 group relative",
               activeTab === 'dashboard' ? "bg-white/10 text-white" : "text-zinc-600 hover:text-zinc-400"
@@ -152,6 +282,7 @@ export default function App() {
           </button>
           <button 
             onClick={() => setActiveTab('history')}
+            aria-label="Open history tab"
             className={cn(
               "p-3 rounded-xl transition-all duration-300 group relative",
               activeTab === 'history' ? "bg-white/10 text-white" : "text-zinc-600 hover:text-zinc-400"
@@ -162,6 +293,7 @@ export default function App() {
           </button>
           <button 
             onClick={() => setActiveTab('alerts')}
+            aria-label="Open alerts tab"
             className={cn(
               "p-3 rounded-xl transition-all duration-300 group relative",
               activeTab === 'alerts' ? "bg-white/10 text-white" : "text-zinc-600 hover:text-zinc-400"
@@ -173,7 +305,11 @@ export default function App() {
         </nav>
 
         <div className="mt-auto flex flex-col gap-4">
-          <button className="p-3 rounded-xl text-zinc-600 hover:text-zinc-400 transition-colors">
+          <button
+            onClick={() => setIsSettingsOpen(true)}
+            aria-label="Open settings"
+            className="p-3 rounded-xl text-zinc-600 hover:text-zinc-400 transition-colors"
+          >
             <Settings className="w-5 h-5" />
           </button>
         </div>
@@ -195,19 +331,24 @@ export default function App() {
               <div className="flex items-center gap-2">
                 <Thermometer className="w-4 h-4 text-orange-400" />
                 <span className="text-sm font-medium text-white">
-                  {hasData ? `${displayCurrentData.temp}°C` : '--'}
+                  {hasData ? `${formatNumber(toDisplayTemp(displayCurrentData.temp))}${temperatureUnitLabel}` : '--'}
                 </span>
               </div>
               <div className="flex items-center gap-2">
                 <Droplets className="w-4 h-4 text-blue-400" />
                 <span className="text-sm font-medium text-white">
-                  {hasData ? `${displayCurrentData.humidity}%` : '--'}
+                  {hasData ? `${formatNumber(displayCurrentData.humidity)}%` : '--'}
                 </span>
               </div>
             </div>
 
             <button 
-              onClick={() => refreshData({ forceRefresh: true })}
+              onClick={() => {
+                refreshData({ forceRefresh: true });
+                refreshLatest({ forceRefresh: true });
+                refreshAverages({ forceRefresh: true });
+              }}
+              aria-label="Refresh sensor data"
               disabled={isRefreshing}
               className="p-2.5 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 rounded-xl transition-all disabled:opacity-50"
             >
@@ -329,12 +470,59 @@ export default function App() {
                       </div>
                     </div>
                     <HistoricalChart
-                      data={data}
+                      data={chartData}
                       dataKey={selectedPollutant}
                       color="#6366f1"
                       label={POLLUTANTS[selectedPollutant as string]?.name || (selectedPollutant as string)}
                       windowLabel={timeWindowLabel}
+                      unit={POLLUTANTS[selectedPollutant as string]?.unit}
+                      timezone={settings.timezone}
                     />
+                  </div>
+                </div>
+
+                <div className="lg:col-span-12">
+                  <div className="rounded-3xl border border-zinc-800/50 bg-zinc-900/30 p-6 backdrop-blur-sm">
+                    <div className="flex items-center justify-between gap-4 flex-wrap">
+                      <div className="flex items-center gap-2">
+                        <History className="w-4 h-4 text-indigo-400" />
+                        <h3 className="text-sm font-medium uppercase tracking-widest text-zinc-400">
+                          Averages
+                        </h3>
+                      </div>
+                      <span className="text-[10px] uppercase tracking-widest text-zinc-500">
+                        {averagesLabel}
+                      </span>
+                    </div>
+
+                    <div className="mt-4 grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4">
+                      {[
+                        { key: 'pm25', label: 'PM2.5', unit: 'µg/m³', value: averages?.pm25 ?? null },
+                        { key: 'pm10', label: 'PM10', unit: 'µg/m³', value: averages?.pm10 ?? null },
+                        { key: 'co2', label: 'CO2', unit: 'ppm', value: averages?.co2 ?? null },
+                        { key: 'voc', label: 'VOC', unit: 'ppb', value: averages?.voc ?? null },
+                        {
+                          key: 'temp',
+                          label: 'Temperature',
+                          unit: temperatureUnitLabel,
+                          value: averages?.temp != null ? toDisplayTemp(averages.temp) : null
+                        },
+                        { key: 'humidity', label: 'Humidity', unit: '%', value: averages?.humidity ?? null }
+                      ].map((item) => (
+                        <div
+                          key={item.key}
+                          className="rounded-2xl border border-zinc-800/60 bg-black/20 px-4 py-3"
+                        >
+                          <div className="text-[10px] uppercase tracking-widest text-zinc-500">{item.label}</div>
+                          <div className="mt-2 flex items-baseline gap-1">
+                            <span className="text-lg font-semibold text-white">
+                              {formatNumber(item.value)}
+                            </span>
+                            <span className="text-[10px] text-zinc-500">{item.unit}</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 </div>
               </motion.div>
@@ -371,10 +559,10 @@ export default function App() {
                 </div>
                 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                  <HistoricalChart data={data} dataKey="aqi" color="#10b981" label="AQI" windowLabel={timeWindowLabel} />
-                  <HistoricalChart data={data} dataKey="pm25" color="#6366f1" label="PM2.5" windowLabel={timeWindowLabel} />
-                  <HistoricalChart data={data} dataKey="co2" color="#f59e0b" label="CO2" windowLabel={timeWindowLabel} />
-                  <HistoricalChart data={data} dataKey="voc" color="#8b5cf6" label="VOC" windowLabel={timeWindowLabel} />
+                  <HistoricalChart data={chartData} dataKey="aqi" color="#10b981" label="AQI" windowLabel={timeWindowLabel} unit="AQI" timezone={settings.timezone} />
+                  <HistoricalChart data={chartData} dataKey="pm25" color="#6366f1" label="PM2.5" windowLabel={timeWindowLabel} unit={POLLUTANTS.pm25.unit} timezone={settings.timezone} />
+                  <HistoricalChart data={chartData} dataKey="co2" color="#f59e0b" label="CO2" windowLabel={timeWindowLabel} unit={POLLUTANTS.co2.unit} timezone={settings.timezone} />
+                  <HistoricalChart data={chartData} dataKey="voc" color="#8b5cf6" label="VOC" windowLabel={timeWindowLabel} unit={POLLUTANTS.voc.unit} timezone={settings.timezone} />
                 </div>
               </motion.div>
             )}
@@ -432,6 +620,83 @@ export default function App() {
         </div>
       </main>
 
+      {isSettingsOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-6">
+          <div className="w-full max-w-md rounded-3xl border border-zinc-800 bg-zinc-950/90 p-6 shadow-2xl backdrop-blur-md">
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-semibold text-white">Settings</h2>
+              <button
+                onClick={() => setIsSettingsOpen(false)}
+                className="rounded-xl border border-zinc-800 bg-white/5 px-3 py-1 text-xs uppercase tracking-widest text-zinc-300 hover:bg-white/10"
+              >
+                Close
+              </button>
+            </div>
+
+            <p className="mt-2 text-xs text-zinc-500">Saved locally on this device.</p>
+
+            <div className="mt-6 space-y-4">
+              <div>
+                <label className="text-[10px] uppercase tracking-widest text-zinc-500">Temperature Units</label>
+                <select
+                  aria-label="Temperature Units"
+                  className="mt-2 w-full rounded-xl border border-zinc-800 bg-zinc-900 px-3 py-2 text-sm text-zinc-200"
+                  value={settings.temperatureUnit}
+                  onChange={(e) =>
+                    setSettings((prev) => ({
+                      ...prev,
+                      temperatureUnit: e.target.value === 'F' ? 'F' : 'C'
+                    }))
+                  }
+                >
+                  <option value="C">Celsius (°C)</option>
+                  <option value="F">Fahrenheit (°F)</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="text-[10px] uppercase tracking-widest text-zinc-500">Auto Refresh Interval</label>
+                <select
+                  aria-label="Auto Refresh Interval"
+                  className="mt-2 w-full rounded-xl border border-zinc-800 bg-zinc-900 px-3 py-2 text-sm text-zinc-200"
+                  value={settings.refreshIntervalMinutes}
+                  onChange={(e) =>
+                    setSettings((prev) => ({
+                      ...prev,
+                      refreshIntervalMinutes: Number(e.target.value)
+                    }))
+                  }
+                >
+                  {[1, 5, 10, 15].map((mins) => (
+                    <option key={mins} value={mins}>
+                      {mins} minute{mins === 1 ? '' : 's'}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="text-[10px] uppercase tracking-widest text-zinc-500">Timezone</label>
+                <select
+                  aria-label="Timezone"
+                  className="mt-2 w-full rounded-xl border border-zinc-800 bg-zinc-900 px-3 py-2 text-sm text-zinc-200"
+                  value={settings.timezone}
+                  onChange={(e) =>
+                    setSettings((prev) => ({
+                      ...prev,
+                      timezone: e.target.value === 'UTC' ? 'UTC' : 'local'
+                    }))
+                  }
+                >
+                  <option value="local">Local</option>
+                  <option value="UTC">UTC</option>
+                </select>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Footer / Status Bar */}
       <footer className="fixed bottom-0 left-20 right-0 h-8 border-t border-zinc-800/50 bg-black/80 backdrop-blur-sm px-8 flex items-center justify-between z-40">
         <div className="flex items-center gap-4">
@@ -443,7 +708,7 @@ export default function App() {
           <span className="text-[10px] uppercase tracking-widest text-zinc-500">Device ID: {deviceId}</span>
         </div>
         <span className="text-[10px] uppercase tracking-widest text-zinc-600 font-mono">
-          Last Sync: {currentData ? format(parseISO(currentData.timestamp), 'HH:mm:ss') : '--:--:--'}
+          Last Sync: {currentData ? formatTimestamp(currentData.timestamp, { timezone: settings.timezone, includeSeconds: true }) : '--:--:--'}
         </span>
       </footer>
     </div>

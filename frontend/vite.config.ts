@@ -27,5 +27,10 @@ export default defineConfig(({ mode }) => {
         '/ingest': apiTarget,
       },
     },
+    test: {
+      environment: 'jsdom',
+      globals: true,
+      setupFiles: ['./src/test/setup.ts'],
+    },
   };
 });
