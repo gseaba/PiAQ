@@ -97,3 +97,8 @@ export const sessionCacheInvalidate = (key: string) => {
     // ignore
   }
 };
+
+export const sessionCacheClearAll = () => {
+  memoryCache.clear();
+  inFlight.clear();
+};

@@ -96,8 +96,10 @@ describe('App UI', () => {
 
     const firstFetchUrl = String(vi.mocked(globalThis.fetch).mock.calls[0]?.[0] ?? '');
     expect(firstFetchUrl).toMatch(/\/devices$/);
-    expect(vi.mocked(getDeviceHistoryWindow)).toHaveBeenCalledWith('device-1', '1d', undefined);
-    expect(vi.mocked(getDeviceLatestSummary)).toHaveBeenCalledWith('device-1', undefined);
+    await waitFor(() => {
+      expect(vi.mocked(getDeviceHistoryWindow)).toHaveBeenCalledWith('device-1', '1d', undefined);
+      expect(vi.mocked(getDeviceLatestSummary)).toHaveBeenCalledWith('device-1', undefined);
+    });
   });
 
   it('applies settings changes and persists to localStorage', async () => {

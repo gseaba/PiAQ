@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { getDeviceAlerts, getDeviceHistoryWindow, getDeviceLatestSummary, type TimeWindow } from './airQualityService';
+import { sessionCacheClearAll } from './sessionCache';
 
 const mkFetchResponse = (body: unknown, ok = true, status = 200) =>
   Promise.resolve({
@@ -12,6 +13,7 @@ describe('airQualityService outbound GETs', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     sessionStorage.clear();
+    sessionCacheClearAll();
   });
 
   it.each([

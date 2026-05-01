@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { sessionCacheClearAll } from './sessionCache';
 
 const { generateContentMock } = vi.hoisted(() => ({
   generateContentMock: vi.fn(),
@@ -29,6 +30,7 @@ describe('geminiService outbound POST-style calls', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     sessionStorage.clear();
+    sessionCacheClearAll();
   });
 
   it('calls Gemini generateContent with expected payload and parses JSON insights', async () => {
