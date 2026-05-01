@@ -63,6 +63,9 @@ def main():
     registered = uploader.register_device(DEVICE_ID, LOCATION_LABEL)
     if not registered:
         logger.warning("Initial registration failed. Will attempt to ingest anyways, but errors may occur.")
+        isRegistered = False
+    else:
+        isRegistered = True
 
     buffer = []
     window_start = datetime.now(timezone.utc).isoformat()
@@ -83,6 +86,15 @@ def main():
 
             if elapsed_time >= UPLOAD_INTERVAL and len(buffer) > 0:
                 window_end = datetime.now(timezone.utc).isoformat()
+
+                # Reattempt registration if not registered
+                if not isRegistered:
+                    registered = uploader.register_device(DEVICE_ID, LOCATION_LABEL)
+                    if not registered:
+                        logger.warning("Initial registration failed. Will attempt to ingest anyways, but errors may occur.")
+                        isRegistered = False
+                    else:
+                        isRegistered = True
 
                 # 3. Calculate the Summary for the Backend Contract
                 payload = {

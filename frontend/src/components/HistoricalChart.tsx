@@ -18,6 +18,7 @@ interface HistoricalChartProps {
   dataKey: keyof AirQualityData;
   color: string;
   label: string;
+  windowLabel?: string;
 }
 
 const CustomTooltip = ({ active, payload, label }: any) => {
@@ -36,7 +37,7 @@ const CustomTooltip = ({ active, payload, label }: any) => {
   return null;
 };
 
-export const HistoricalChart: React.FC<HistoricalChartProps> = ({ data, dataKey, color, label }) => {
+export const HistoricalChart: React.FC<HistoricalChartProps> = ({ data, dataKey, color, label, windowLabel }) => {
   return (
     <motion.div
       initial={{ opacity: 0, scale: 0.98 }}
@@ -47,7 +48,9 @@ export const HistoricalChart: React.FC<HistoricalChartProps> = ({ data, dataKey,
         <h3 className="text-sm font-medium text-zinc-400 uppercase tracking-widest">{label} Trends</h3>
         <div className="flex gap-2">
           <div className="w-2 h-2 rounded-full" style={{ backgroundColor: color }} />
-          <span className="text-[10px] text-zinc-500 uppercase tracking-widest">Last 24 Hours</span>
+          <span className="text-[10px] text-zinc-500 uppercase tracking-widest">
+            {windowLabel || 'Last 24 Hours'}
+          </span>
         </div>
       </div>
 
