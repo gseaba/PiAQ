@@ -8,6 +8,9 @@ class PMS5003Sensor:
 
     def read(self):
         try:
+            # Clear the old buffer data
+            self.sensor.uart.reset_input_buffer()
+            
             data = self.sensor.read()
             if not data:
                 return None
