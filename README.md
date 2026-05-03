@@ -51,7 +51,7 @@ The backend stores registered devices, sensor readings, alert rules, alert histo
 The deployed dashboard is available at:
 
 ```text
-https://garrettseaba.com
+https://piaq.pages.dev
 ```
 
 To use it:
