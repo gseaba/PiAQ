@@ -32,7 +32,7 @@ import {
 
 // Helper to fetch device list
 async function fetchDevices() {
-  const res = await fetch((import.meta as any).env?.VITE_API_URL + '/devices');
+  const res = await fetch((import.meta as any).env?.VITE_API_URL + '/devices', { cache: 'no-store' });
   if (!res.ok) throw new Error('Failed to fetch devices');
   const data = await res.json();
   return data.devices || [];

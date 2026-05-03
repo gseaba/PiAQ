@@ -19,30 +19,57 @@ from uploader.uploader import DataUploader
 from utils.logger import setup_logger
 from sensors import SCD40Sensor, SGP40Sensor, PMS5003Sensor
 
-def collect_raw_sample(scd, sgp, pms):
+def collect_raw_sample(scd, sgp, pms, logger=None):
     """Collects one single snapshot from all sensors."""
     sample = {}
     
     # 1. Read SCD40 (The context provider)
-    scd_data = scd.read()
     temp = None
     hum = None
-    if scd_data:
-        sample.update(scd_data)
-        temp = scd_data.get('temp')
-        hum = scd_data.get('hum')
+    try:
+        scd_data = scd.read()
+        if scd_data:
+            sample.update(scd_data)
+            temp = scd_data.get('temp')
+            hum = scd_data.get('hum')
+    except Exception as e:
+        if logger:
+            logger.warning(f"SCD40 read failed: {e}")
 
     # 2. Read PMS5003
-    pm_data = pms.read()
-    if pm_data:
-        sample.update(pm_data)
+    try:
+        pm_data = pms.read()
+        if pm_data:
+            sample.update(pm_data)
+    except Exception as e:
+        if logger:
+            logger.warning(f"PMS5003 read failed: {e}")
 
     # 3. Read SGP40 (Using SCD40 compensation)
-    voc_data = sgp.read(temp=temp, hum=hum)
-    if voc_data:
-        sample.update(voc_data)
+    try:
+        voc_data = sgp.read(temp=temp, hum=hum)
+        if voc_data:
+            sample.update(voc_data)
+    except Exception as e:
+        if logger:
+            logger.warning(f"SGP40 read failed: {e}")
         
     return sample
+
+def metric_values(buffer, key):
+    return [s[key] for s in buffer if key in s and s[key] is not None]
+
+def mean_or_none(buffer, key):
+    values = metric_values(buffer, key)
+    return statistics.mean(values) if values else None
+
+def max_or_none(buffer, key):
+    values = metric_values(buffer, key)
+    return max(values) if values else None
+
+def add_summary_metric(reading, field, value):
+    if value is not None:
+        reading[field] = value
 
 def main():
     logger = setup_logger()
@@ -75,7 +102,7 @@ def main():
     while True:
         try:
             # 1. Collect a single sample
-            sample = collect_raw_sample(scd40, sgp40, pms5003)
+            sample = collect_raw_sample(scd40, sgp40, pms5003, logger)
             if sample:
                 buffer.append(sample)
             
@@ -97,28 +124,38 @@ def main():
                         isRegistered = True
 
                 # 3. Calculate the Summary for the Backend Contract
+                reading = {
+                    "windowStart": window_start,
+                    "windowEnd": window_end,
+                    "sampleCount": len(buffer)
+                }
+
+                add_summary_metric(reading, "co2_avg", mean_or_none(buffer, "co2"))
+                add_summary_metric(reading, "co2_max", max_or_none(buffer, "co2"))
+                add_summary_metric(reading, "voc_avg", mean_or_none(buffer, "voc_index"))
+                add_summary_metric(reading, "voc_max", max_or_none(buffer, "voc_index"))
+                add_summary_metric(reading, "pm1_0_avg", mean_or_none(buffer, "pm1_0"))
+                add_summary_metric(reading, "pm2_5_avg", mean_or_none(buffer, "pm2_5"))
+                add_summary_metric(reading, "pm10_avg", mean_or_none(buffer, "pm10"))
+                add_summary_metric(reading, "temperature", mean_or_none(buffer, "temp"))
+                add_summary_metric(reading, "humidity", mean_or_none(buffer, "hum"))
+
                 payload = {
-                    "deviceId": DEVICE_ID, # Change to your actual ID
-                    "readings": [
-                        {
-                            "windowStart": window_start,
-                            "windowEnd": window_end,
-                            "sampleCount": len(buffer),
-                            "co2_avg": statistics.mean([s['co2'] for s in buffer if 'co2' in s]),
-                            "co2_max": max([s['co2'] for s in buffer if 'co2' in s]),
-                            "voc_avg": statistics.mean([s['voc_index'] for s in buffer if 'voc_index' in s]),
-                            "voc_max": max([s['voc_index'] for s in buffer if 'voc_index' in s]),
-                            "pm1_0_avg": statistics.mean([s['pm1_0'] for s in buffer if 'pm1_0' in s]),
-                            "pm2_5_avg": statistics.mean([s['pm2_5'] for s in buffer if 'pm2_5' in s]),
-                            "pm10_avg":  statistics.mean([s['pm10'] for s in buffer if 'pm10' in s]),
-                            "temperature": statistics.mean([s['temp'] for s in buffer if 'temp' in s]),
-                            "humidity":    statistics.mean([s['hum'] for s in buffer if 'hum' in s])
-                        }
-                    ]
+                    "deviceId": DEVICE_ID,
+                    "readings": [reading]
                 }
 
                 # Extract the summary for easier logging
-                summary = payload["readings"][0]
+                summary = {
+                    "co2_avg": float("nan"),
+                    "voc_avg": float("nan"),
+                    "pm1_0_avg": float("nan"),
+                    "pm2_5_avg": float("nan"),
+                    "pm10_avg": float("nan"),
+                    "temperature": float("nan"),
+                    "humidity": float("nan"),
+                    **payload["readings"][0]
+                }
 
                 logger.info(
                     f"Window Summary: CO2: {summary['co2_avg']:.1f}ppm, "
