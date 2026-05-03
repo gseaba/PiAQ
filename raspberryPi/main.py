@@ -117,6 +117,19 @@ def main():
                     ]
                 }
 
+                # Extract the summary for easier logging
+                summary = payload["readings"][0]
+
+                logger.info(
+                    f"Window Summary: CO2: {summary['co2_avg']:.1f}ppm, "
+                    f"VOC: {summary['voc_avg']:.1f}, "
+                    f"PM1.0: {summary['pm1_0_avg']:0.1f}µg/m³, "
+                    f"PM2.5: {summary['pm2_5_avg']:.1f}µg/m³, "
+                    f"PM10: {summary['pm10_avg']:.1f}µg/m³, "
+                    f"Temp: {summary['temperature']:.1f}°C, "
+                    f"Hum: {summary['humidity']:.1f}°C"
+                )
+
                 # 4. Upload to the new /ingest/batch endpoint
                 success = uploader.upload_batch(payload)
                 
@@ -139,8 +152,8 @@ def main():
         except Exception as e:
             logger.exception(f"Unexpected error in main loop: {e}")
 
-        # Take a reading every 10 seconds (gives you ~30 samples per 5-min window)
-        time.sleep(10)
+        # Take a reading every 5 seconds (gives you ~6 samples per 30 second window)
+        time.sleep(5)
 
 if __name__ == "__main__":
     main()
