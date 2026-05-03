@@ -1,8 +1,13 @@
 const express = require('express');
 const { body, param, query } = require('express-validator');
 
+const alertEmailController = require('../controllers/alertEmail.controller');
 const devicesController = require('../controllers/devices.controller');
 const { SUPPORTED_METRICS } = require('../constants/metrics');
+const {
+    MAX_REPEAT_INTERVAL_MINUTES,
+    MIN_REPEAT_INTERVAL_MINUTES
+} = require('../services/alertEmail.service');
 const { SUPPORTED_OPERATORS } = require('../services/alert.service');
 const validateRequest = require('../middleware/validateRequest');
 
@@ -106,6 +111,105 @@ router.get(
     ],
     validateRequest,
     devicesController.getDeviceAlerts
+);
+
+router.get(
+    '/:deviceId/alert-email',
+    [
+        param('deviceId')
+            .trim()
+            .notEmpty()
+            .withMessage('deviceId is required')
+    ],
+    validateRequest,
+    alertEmailController.getAlertEmailSettings
+);
+
+router.put(
+    '/:deviceId/alert-email',
+    [
+        param('deviceId')
+            .trim()
+            .notEmpty()
+            .withMessage('deviceId is required'),
+        body('enabled')
+            .optional()
+            .isBoolean()
+            .withMessage('enabled must be a boolean'),
+        body('repeatIntervalMinutes')
+            .optional()
+            .isInt({
+                min: MIN_REPEAT_INTERVAL_MINUTES,
+                max: MAX_REPEAT_INTERVAL_MINUTES
+            })
+            .withMessage(
+                `repeatIntervalMinutes must be between ${MIN_REPEAT_INTERVAL_MINUTES} and ${MAX_REPEAT_INTERVAL_MINUTES}`
+            )
+    ],
+    validateRequest,
+    alertEmailController.updateAlertEmailSettings
+);
+
+router.post(
+    '/:deviceId/alert-email/request-confirmation',
+    [
+        param('deviceId')
+            .trim()
+            .notEmpty()
+            .withMessage('deviceId is required'),
+        body('email')
+            .trim()
+            .isEmail()
+            .withMessage('email must be valid')
+            .isLength({ max: 320 })
+            .withMessage('email must be 320 characters or fewer')
+    ],
+    validateRequest,
+    alertEmailController.requestAlertEmailConfirmation
+);
+
+router.get(
+    '/:deviceId/alert-email/confirm',
+    [
+        param('deviceId')
+            .trim()
+            .notEmpty()
+            .withMessage('deviceId is required'),
+        query('token')
+            .trim()
+            .notEmpty()
+            .withMessage('token is required')
+    ],
+    validateRequest,
+    alertEmailController.confirmAlertEmail
+);
+
+router.post(
+    '/:deviceId/alert-email/confirm',
+    [
+        param('deviceId')
+            .trim()
+            .notEmpty()
+            .withMessage('deviceId is required'),
+        body('token')
+            .trim()
+            .notEmpty()
+            .withMessage('token is required')
+    ],
+    validateRequest,
+    alertEmailController.confirmAlertEmail
+);
+
+router.post(
+    '/:deviceId/alert-email/test',
+    [
+        param('deviceId')
+            .trim()
+            .notEmpty()
+            .withMessage('deviceId is required')
+    ],
+    validateRequest,
+    alertEmailController.sendTestAlertEmail
 );
 
 router.get(

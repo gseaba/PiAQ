@@ -1,4 +1,4 @@
-import { AirQualityData, DeviceAlert } from '../types';
+import { AirQualityData, AlertEmailSettings, DeviceAlert } from '../types';
 import { sessionCacheFetch } from './sessionCache';
 
 export type TimeWindow = '6h' | '12h' | '1d' | '1w';
@@ -80,6 +80,29 @@ const getWindowConfig = (window: TimeWindow) => {
 const fetchJson = async <T>(path: string): Promise<T> => {
   const res = await fetch(`${API_BASE}${path}`);
   if (!res.ok) throw new Error(`Request failed (${res.status}) for ${path}`);
+  return (await res.json()) as T;
+};
+
+const sendJson = async <T>(path: string, method: 'POST' | 'PUT', body?: unknown): Promise<T> => {
+  const res = await fetch(`${API_BASE}${path}`, {
+    method,
+    headers: {
+      'content-type': 'application/json',
+    },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+
+  if (!res.ok) {
+    let message = `Request failed (${res.status}) for ${path}`;
+    try {
+      const payload = await res.json();
+      if (payload?.error) message = payload.error;
+    } catch {
+      // keep the generic request failure
+    }
+    throw new Error(message);
+  }
+
   return (await res.json()) as T;
 };
 
@@ -235,3 +258,38 @@ export const getDeviceAlerts = async (
 
   return res.alerts || [];
 };
+
+export const getAlertEmailSettings = async (deviceId: string): Promise<AlertEmailSettings> => {
+  const res = await fetchJson<{ deviceId: string; settings: AlertEmailSettings }>(
+    `/devices/${encodeURIComponent(deviceId)}/alert-email`
+  );
+  return res.settings;
+};
+
+export const updateAlertEmailSettings = async (
+  deviceId: string,
+  settings: { enabled?: boolean; repeatIntervalMinutes?: number }
+): Promise<AlertEmailSettings> => {
+  const res = await sendJson<{ deviceId: string; settings: AlertEmailSettings }>(
+    `/devices/${encodeURIComponent(deviceId)}/alert-email`,
+    'PUT',
+    settings
+  );
+  return res.settings;
+};
+
+export const requestAlertEmailConfirmation = async (
+  deviceId: string,
+  email: string
+): Promise<{ pendingRecipientEmail: string; confirmationExpiresAt: string }> =>
+  sendJson<{ pendingRecipientEmail: string; confirmationExpiresAt: string }>(
+    `/devices/${encodeURIComponent(deviceId)}/alert-email/request-confirmation`,
+    'POST',
+    { email }
+  );
+
+export const sendTestAlertEmail = async (deviceId: string): Promise<{ sentTo: string }> =>
+  sendJson<{ sentTo: string }>(
+    `/devices/${encodeURIComponent(deviceId)}/alert-email/test`,
+    'POST'
+  );

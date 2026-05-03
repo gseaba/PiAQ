@@ -10,12 +10,22 @@ import {
   LayoutDashboard,
   History,
   Settings,
-  Bell
+  Bell,
+  Mail,
+  Send
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { AirQualityData } from './types';
+import { AirQualityData, AlertEmailSettings } from './types';
 import { POLLUTANTS } from './constants';
-import { getDeviceHistoryWindow, getDeviceLatestSummary, TimeWindow } from './services/airQualityService';
+import {
+  getAlertEmailSettings,
+  getDeviceHistoryWindow,
+  getDeviceLatestSummary,
+  requestAlertEmailConfirmation,
+  sendTestAlertEmail,
+  TimeWindow,
+  updateAlertEmailSettings
+} from './services/airQualityService';
 
 // Helper to fetch device list
 async function fetchDevices() {
@@ -77,6 +87,10 @@ export default function App() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [settings, setSettings] = useState<UserSettings>(() => loadSettings());
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [alertEmailSettings, setAlertEmailSettings] = useState<AlertEmailSettings | null>(null);
+  const [alertEmailInput, setAlertEmailInput] = useState('');
+  const [alertEmailStatus, setAlertEmailStatus] = useState<string | null>(null);
+  const [isAlertEmailBusy, setIsAlertEmailBusy] = useState(false);
 
   const mountedRef = useRef(true);
   const placeholderRef = useRef<AirQualityData>({
@@ -179,6 +193,64 @@ export default function App() {
     }
   };
 
+  const refreshAlertEmailSettings = async () => {
+    if (!deviceId) return;
+    try {
+      const next = await getAlertEmailSettings(deviceId);
+      if (!mountedRef.current) return;
+      setAlertEmailSettings(next);
+      setAlertEmailInput(next.pendingRecipientEmail || next.recipientEmail || '');
+    } catch (err: any) {
+      console.warn('Failed to load alert email settings:', err);
+      if (mountedRef.current) setAlertEmailStatus(err?.message || 'Failed to load alert email settings');
+    }
+  };
+
+  const saveAlertEmailSettings = async (next: { enabled?: boolean; repeatIntervalMinutes?: number }) => {
+    if (!deviceId) return;
+    setIsAlertEmailBusy(true);
+    setAlertEmailStatus(null);
+    try {
+      const saved = await updateAlertEmailSettings(deviceId, next);
+      if (!mountedRef.current) return;
+      setAlertEmailSettings(saved);
+      setAlertEmailStatus('Alert email settings saved.');
+    } catch (err: any) {
+      if (mountedRef.current) setAlertEmailStatus(err?.message || 'Failed to save alert email settings');
+    } finally {
+      if (mountedRef.current) setIsAlertEmailBusy(false);
+    }
+  };
+
+  const sendAlertEmailConfirmation = async () => {
+    if (!deviceId) return;
+    setIsAlertEmailBusy(true);
+    setAlertEmailStatus(null);
+    try {
+      await requestAlertEmailConfirmation(deviceId, alertEmailInput);
+      await refreshAlertEmailSettings();
+      if (mountedRef.current) setAlertEmailStatus('Confirmation email sent. Check that inbox to finish setup.');
+    } catch (err: any) {
+      if (mountedRef.current) setAlertEmailStatus(err?.message || 'Failed to send confirmation email');
+    } finally {
+      if (mountedRef.current) setIsAlertEmailBusy(false);
+    }
+  };
+
+  const sendAlertEmailTest = async () => {
+    if (!deviceId) return;
+    setIsAlertEmailBusy(true);
+    setAlertEmailStatus(null);
+    try {
+      await sendTestAlertEmail(deviceId);
+      if (mountedRef.current) setAlertEmailStatus('Test alert email sent.');
+    } catch (err: any) {
+      if (mountedRef.current) setAlertEmailStatus(err?.message || 'Failed to send test alert email');
+    } finally {
+      if (mountedRef.current) setIsAlertEmailBusy(false);
+    }
+  };
+
   useEffect(() => {
     try {
       localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
@@ -212,9 +284,12 @@ export default function App() {
     if (deviceId) {
       setLatestData(null);
       setAverages(null);
+      setAlertEmailSettings(null);
+      setAlertEmailStatus(null);
       refreshData();
       refreshLatest();
       refreshAverages();
+      refreshAlertEmailSettings();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [deviceId]);
@@ -584,36 +659,104 @@ export default function App() {
                 </div>
 
                 <div className="space-y-4">
-                  {[
-                    { title: 'High PM2.5 Alert', desc: 'Notify when PM2.5 exceeds 35µg/m³', active: true },
-                    { title: 'CO2 Ventilation Warning', desc: 'Notify when CO2 exceeds 1000ppm', active: true },
-                    { title: 'VOC Spike Detected', desc: 'Notify when VOC levels rise rapidly', active: false },
-                    { title: 'Health Recommendations', desc: 'Daily AI-powered health insights', active: true },
-                  ].map((alert, i) => (
-                    <div key={i} className="p-6 bg-zinc-900/40 rounded-3xl border border-zinc-800/50 flex items-center justify-between">
+                  <div className="p-6 bg-zinc-900/40 rounded-3xl border border-zinc-800/50">
+                    <div className="flex items-center gap-3">
+                      <Mail className="w-5 h-5 text-indigo-400" />
                       <div>
-                        <h3 className="text-white font-medium">{alert.title}</h3>
-                        <p className="text-sm text-zinc-500">{alert.desc}</p>
-                      </div>
-                      <div className={cn(
-                        "w-12 h-6 rounded-full p-1 transition-colors cursor-pointer",
-                        alert.active ? "bg-indigo-600" : "bg-zinc-800"
-                      )}>
-                        <div className={cn(
-                          "w-4 h-4 bg-white rounded-full transition-transform",
-                          alert.active ? "translate-x-6" : "translate-x-0"
-                        )} />
+                        <h3 className="text-white font-medium">Email Recipient</h3>
+                        <p className="text-sm text-zinc-500">Confirm an inbox before PiAQ sends real alert emails.</p>
                       </div>
                     </div>
-                  ))}
+
+                    <div className="mt-5 flex flex-col gap-3 sm:flex-row">
+                      <input
+                        aria-label="Alert email recipient"
+                        type="email"
+                        value={alertEmailInput}
+                        onChange={(e) => setAlertEmailInput(e.target.value)}
+                        placeholder="name@example.com"
+                        className="min-w-0 flex-1 rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-indigo-500"
+                      />
+                      <button
+                        onClick={sendAlertEmailConfirmation}
+                        disabled={isAlertEmailBusy || !alertEmailInput}
+                        className="rounded-xl border border-indigo-500/30 bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        Send Confirmation
+                      </button>
+                    </div>
+
+                    <div className="mt-4 text-sm text-zinc-500">
+                      {alertEmailSettings?.recipientEmail ? (
+                        <span className="text-emerald-400">Confirmed: {alertEmailSettings.recipientEmail}</span>
+                      ) : alertEmailSettings?.pendingRecipientEmail ? (
+                        <span className="text-amber-300">Pending confirmation: {alertEmailSettings.pendingRecipientEmail}</span>
+                      ) : (
+                        <span>No confirmed recipient yet.</span>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="p-6 bg-zinc-900/40 rounded-3xl border border-zinc-800/50">
+                    <div className="flex items-center justify-between gap-4">
+                      <div>
+                        <h3 className="text-white font-medium">Email Alerts</h3>
+                        <p className="text-sm text-zinc-500">Send one combined email when one or more sensors are above threshold.</p>
+                      </div>
+                      <button
+                        onClick={() => saveAlertEmailSettings({ enabled: !alertEmailSettings?.enabled })}
+                        disabled={isAlertEmailBusy || !alertEmailSettings?.recipientEmail}
+                        aria-label="Toggle email alerts"
+                        className={cn(
+                          "w-12 h-6 rounded-full p-1 transition-colors disabled:cursor-not-allowed disabled:opacity-50",
+                          alertEmailSettings?.enabled ? "bg-indigo-600" : "bg-zinc-800"
+                        )}
+                      >
+                        <span className={cn(
+                          "block w-4 h-4 bg-white rounded-full transition-transform",
+                          alertEmailSettings?.enabled ? "translate-x-6" : "translate-x-0"
+                        )} />
+                      </button>
+                    </div>
+
+                    <div className="mt-5 grid gap-4 sm:grid-cols-[1fr_auto] sm:items-end">
+                      <div>
+                        <label className="text-[10px] uppercase tracking-widest text-zinc-500">Repeat Alert Interval</label>
+                        <select
+                          aria-label="Repeat Alert Interval"
+                          className="mt-2 w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-zinc-200"
+                          value={alertEmailSettings?.repeatIntervalMinutes || 20}
+                          disabled={isAlertEmailBusy || !alertEmailSettings}
+                          onChange={(e) => saveAlertEmailSettings({ repeatIntervalMinutes: Number(e.target.value) })}
+                        >
+                          {[5, 10, 20, 30, 60, 120, 360, 1440].map((mins) => (
+                            <option key={mins} value={mins}>
+                              {mins < 60 ? `${mins} minutes` : `${mins / 60} hour${mins === 60 ? '' : 's'}`}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <button
+                        onClick={sendAlertEmailTest}
+                        disabled={isAlertEmailBusy || !alertEmailSettings?.enabled}
+                        className="inline-flex items-center justify-center gap-2 rounded-xl border border-zinc-800 bg-white/5 px-4 py-2 text-sm font-medium text-zinc-200 transition-colors hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        <Send className="h-4 w-4" />
+                        Send Test
+                      </button>
+                    </div>
+                  </div>
                 </div>
 
-                <div className="mt-12 p-6 bg-indigo-600/10 rounded-3xl border border-indigo-500/20 flex gap-4">
-                  <Info className="w-6 h-6 text-indigo-400 flex-shrink-0" />
-                  <p className="text-sm text-indigo-300 leading-relaxed">
-                    Alerts are currently simulated based on your threshold settings. In a production environment, these would be sent via push notifications or email.
-                  </p>
-                </div>
+                {(alertEmailStatus || alertEmailSettings?.emailDeliveryConfigured === false) && (
+                  <div className="mt-12 p-6 bg-indigo-600/10 rounded-3xl border border-indigo-500/20 flex gap-4">
+                    <Info className="w-6 h-6 text-indigo-400 flex-shrink-0" />
+                    <p className="text-sm text-indigo-300 leading-relaxed">
+                      {alertEmailStatus || 'Email delivery is not configured on the backend yet.'}
+                    </p>
+                  </div>
+                )}
               </motion.div>
             )}
           </AnimatePresence>
