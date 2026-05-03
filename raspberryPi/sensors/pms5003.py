@@ -10,6 +10,8 @@ class PMS5003Sensor:
         try:
             # Clear the old buffer data
             self.sensor.uart.reset_input_buffer()
+
+            time.sleep(0.5)
             
             data = self.sensor.read()
             if not data:
