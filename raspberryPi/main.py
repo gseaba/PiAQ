@@ -188,9 +188,9 @@ def main():
                     failedBeats = 0
                 else:
                     logger.warning("Heartbeat failed; will retry on the next interval.")
-                    failedBeats++
+                    failedBeats += 1
                     if failedBeats > 2:
-                        isRegistered = false
+                        isRegistered = False
                     
 
         except Exception as e:
