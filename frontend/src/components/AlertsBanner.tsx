@@ -73,7 +73,7 @@ export const AlertsBanner: React.FC<AlertsBannerProps> = ({ deviceId }) => {
   if (!topAlert) return null;
 
   const dismiss = () => {
-    const next = new Set(dismissedRef.current);
+    const next = new Set<string>(dismissedRef.current);
     next.add(String(topAlert.id));
     setDismissed(next);
     writeDismissed(deviceId, next);

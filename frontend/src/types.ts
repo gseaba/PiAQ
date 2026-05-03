@@ -22,6 +22,16 @@ export type DeviceAlert = {
   createdAt: string;
 };
 
+export type AlertEmailSettings = {
+  enabled: boolean;
+  recipientEmail: string | null;
+  recipientVerifiedAt: string | null;
+  pendingRecipientEmail: string | null;
+  confirmationExpiresAt: string | null;
+  repeatIntervalMinutes: number;
+  emailDeliveryConfigured: boolean;
+};
+
 export interface PollutantInfo {
   name: string;
   label: string;

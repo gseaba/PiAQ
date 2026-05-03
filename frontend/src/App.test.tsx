@@ -3,8 +3,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import App from './App';
 
 vi.mock('./services/airQualityService', () => ({
+  getAlertEmailSettings: vi.fn(),
   getDeviceHistoryWindow: vi.fn(),
   getDeviceLatestSummary: vi.fn(),
+  requestAlertEmailConfirmation: vi.fn(),
+  sendTestAlertEmail: vi.fn(),
+  updateAlertEmailSettings: vi.fn(),
 }));
 
 vi.mock('./components/InsightsPanel', () => ({
@@ -15,7 +19,7 @@ vi.mock('./components/AlertsBanner', () => ({
   AlertsBanner: () => <div>Alerts Banner</div>,
 }));
 
-import { getDeviceHistoryWindow, getDeviceLatestSummary } from './services/airQualityService';
+import { getAlertEmailSettings, getDeviceHistoryWindow, getDeviceLatestSummary } from './services/airQualityService';
 
 const historyRows = [
   {
@@ -69,6 +73,16 @@ describe('App UI', () => {
       if (window === '12h') return { label: 'Last 12 hours', data: historyRows };
       if (window === '1w') return { label: 'Last 7 days', data: historyRows };
       return { label: 'Last 24 hours', data: historyRows };
+    });
+
+    vi.mocked(getAlertEmailSettings).mockResolvedValue({
+      enabled: false,
+      recipientEmail: null,
+      recipientVerifiedAt: null,
+      pendingRecipientEmail: null,
+      confirmationExpiresAt: null,
+      repeatIntervalMinutes: 20,
+      emailDeliveryConfigured: true,
     });
   });
 

@@ -1,4 +1,5 @@
 const pool = require('../config/db');
+const { sendDueAlertEmailForDevice } = require('./alertEmail.service');
 const { evaluateAlertsForDevice } = require('./alert.service');
 
 async function ingestBatch({ deviceId, readings }) {
@@ -110,6 +111,12 @@ async function ingestBatch({ deviceId, readings }) {
         );
 
         await client.query('COMMIT');
+
+        if (insertedRows.length > 0) {
+            sendDueAlertEmailForDevice(deviceId).catch((error) => {
+                console.error('Failed to send alert email:', error.message);
+            });
+        }
 
         return {
             deviceId,
