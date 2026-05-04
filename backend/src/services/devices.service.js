@@ -56,15 +56,15 @@ async function ensureDefaultAlertRulesForDevice(executor, internalDeviceId) {
                 duration_seconds,
                 enabled
             )
-            SELECT $1, $2, $3, $4, $5, TRUE
+            SELECT $1::integer, $2::varchar, $3::varchar, $4::numeric, $5::integer, TRUE
             WHERE NOT EXISTS (
                 SELECT 1
                 FROM alert_rules
                 WHERE device_id = $1
-                    AND metric_name = $2
-                    AND operator = $3
-                    AND threshold_value = $4
-                    AND duration_seconds = $5
+                    AND metric_name = $2::varchar
+                    AND operator = $3::varchar
+                    AND threshold_value = $4::numeric
+                    AND duration_seconds = $5::integer
             )
             `,
             [
