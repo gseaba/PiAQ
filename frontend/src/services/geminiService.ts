@@ -1,11 +1,17 @@
-import { GoogleGenAI } from "@google/genai";
 import { AirQualityData, Insight } from "../types";
 import { sessionCacheFetch } from "./sessionCache";
 
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || "" });
+const metaEnv = (import.meta as any).env ?? {};
+const env = {
+  ...metaEnv,
+  ...(typeof process !== "undefined" ? process.env : {}),
+};
+const OPENAI_API_KEY = env.VITE_OPENAI_API_KEY || "";
+const OPENAI_MODEL = "gpt-4.1-nano";
+const OPENAI_API_URL = env.VITE_OPENAI_API_URL || "";
 
 const REFRESH_MS = 5 * 60 * 1000;
-const CACHE_PREFIX = "piaq:gemini:airQualityInsights:v1:";
+const CACHE_PREFIX = "piaq:openai:airQualityInsights:v1:";
 
 const getTimeBucket = (timestamp: string): string => {
   const ms = Date.parse(timestamp);
@@ -31,14 +37,23 @@ const buildPrompt = (currentData: AirQualityData) => `
   - Humidity: ${currentData.humidity}%
   - Temperature: ${currentData.temp}°C
   
-  Return the response as a JSON array of objects with the following structure:
+  Return the response as valid JSON with this shape:
   {
-    "id": "unique-id",
-    "type": "health" | "action" | "alert",
-    "message": "the insight message",
-    "severity": "low" | "medium" | "high"
+    "insights": [
+      {
+        "id": "unique-id",
+        "type": "health" | "action" | "alert",
+        "message": "the insight message",
+        "severity": "low" | "medium" | "high"
+      }
+    ]
   }
 `;
+
+const parseInsights = (text: string): Insight[] => {
+  const parsed = JSON.parse(text) as { insights?: Insight[] };
+  return Array.isArray(parsed.insights) ? parsed.insights : [];
+};
 
 export const getAirQualityInsights = async (
   currentData: AirQualityData,
@@ -50,26 +65,61 @@ export const getAirQualityInsights = async (
     cacheKey,
     REFRESH_MS,
     async () => {
-      const response = await ai.models.generateContent({
-        model: "gemini-3-flash-preview",
-        contents: buildPrompt(currentData),
-        config: {
-          responseMimeType: "application/json",
-        },
+      if (!OPENAI_API_URL) {
+        throw new Error(
+          "AI insights are disabled because no CORS-enabled proxy is configured. Set VITE_OPENAI_API_URL."
+        );
+      }
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+      };
+      if (OPENAI_API_KEY) {
+        headers.Authorization = `Bearer ${OPENAI_API_KEY}`;
+      }
+
+      const response = await fetch(OPENAI_API_URL, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          model: OPENAI_MODEL,
+          messages: [
+            {
+              role: "system",
+              content: "You analyze indoor air quality data and return concise, practical recommendations as JSON.",
+            },
+            {
+              role: "user",
+              content: buildPrompt(currentData),
+            },
+          ],
+          temperature: 0.4,
+          response_format: { type: "json_object" },
+        }),
       });
 
-      const text = response.text;
+      if (!response.ok) {
+        throw new Error(`OpenAI request failed with status ${response.status}.`);
+      }
+
+      const data = (await response.json()) as {
+        choices?: Array<{ message?: { content?: string | null } }>;
+      };
+      const text = data.choices?.[0]?.message?.content;
       if (!text) return [];
-      return JSON.parse(text) as Insight[];
+      return parseInsights(text);
     },
     opts
   ).catch((error) => {
     console.error("Error fetching insights:", error);
+    const message =
+      error instanceof Error && error.message.startsWith("AI insights are disabled")
+        ? error.message
+        : "Unable to generate AI insights at this time. Please check your connection.";
     return [
       {
         id: "error",
         type: "alert",
-        message: "Unable to generate AI insights at this time. Please check your connection.",
+        message,
         severity: "low",
       },
     ];
