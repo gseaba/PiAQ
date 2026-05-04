@@ -25,6 +25,8 @@ describe('openai insights service outbound POST-style calls', () => {
     vi.clearAllMocks();
     sessionStorage.clear();
     sessionCacheClearAll();
+    process.env.VITE_OPENAI_API_URL = 'https://proxy.example.com/v1/chat/completions';
+    delete process.env.VITE_OPENAI_API_KEY;
   });
 
   it('calls OpenAI with expected payload and parses JSON insights', async () => {
@@ -50,12 +52,12 @@ describe('openai insights service outbound POST-style calls', () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [url, request] = fetchMock.mock.calls[0];
-    expect(url).toBe('https://api.openai.com/v1/chat/completions');
+    expect(url).toBe('https://proxy.example.com/v1/chat/completions');
     expect(request.method).toBe('POST');
     expect(request.headers).toMatchObject({
       'Content-Type': 'application/json',
-      Authorization: expect.stringContaining('Bearer '),
     });
+    expect(request.headers).not.toHaveProperty('Authorization');
 
     const body = JSON.parse(request.body as string) as {
       model: string;

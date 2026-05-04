@@ -1,9 +1,14 @@
 import { AirQualityData, Insight } from "../types";
 import { sessionCacheFetch } from "./sessionCache";
 
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY || "";
+const metaEnv = (import.meta as any).env ?? {};
+const env = {
+  ...metaEnv,
+  ...(typeof process !== "undefined" ? process.env : {}),
+};
+const OPENAI_API_KEY = env.VITE_OPENAI_API_KEY || "";
 const OPENAI_MODEL = "gpt-4.1-nano";
-const OPENAI_API_URL = "https://api.openai.com/v1/chat/completions";
+const OPENAI_API_URL = env.VITE_OPENAI_API_URL || "";
 
 const REFRESH_MS = 5 * 60 * 1000;
 const CACHE_PREFIX = "piaq:openai:airQualityInsights:v1:";
@@ -60,16 +65,21 @@ export const getAirQualityInsights = async (
     cacheKey,
     REFRESH_MS,
     async () => {
-      if (!OPENAI_API_KEY) {
-        throw new Error("Missing OpenAI API key.");
+      if (!OPENAI_API_URL) {
+        throw new Error(
+          "AI insights are disabled because no CORS-enabled proxy is configured. Set VITE_OPENAI_API_URL."
+        );
+      }
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+      };
+      if (OPENAI_API_KEY) {
+        headers.Authorization = `Bearer ${OPENAI_API_KEY}`;
       }
 
       const response = await fetch(OPENAI_API_URL, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${OPENAI_API_KEY}`,
-        },
+        headers,
         body: JSON.stringify({
           model: OPENAI_MODEL,
           messages: [
@@ -101,11 +111,15 @@ export const getAirQualityInsights = async (
     opts
   ).catch((error) => {
     console.error("Error fetching insights:", error);
+    const message =
+      error instanceof Error && error.message.startsWith("AI insights are disabled")
+        ? error.message
+        : "Unable to generate AI insights at this time. Please check your connection.";
     return [
       {
         id: "error",
         type: "alert",
-        message: "Unable to generate AI insights at this time. Please check your connection.",
+        message,
         severity: "low",
       },
     ];
