@@ -1,5 +1,5 @@
 const pool = require('../config/db');
-const { HISTORY_METRICS } = require('../constants/metrics');
+const { DEFAULT_ALERT_RULES, HISTORY_METRICS } = require('../constants/metrics');
 
 function parseBucketToSeconds(bucket) {
     const matches = /^(\d+)([mhd])$/.exec(bucket);
@@ -44,22 +44,71 @@ async function getDeviceByDeviceId(deviceId) {
     return getDeviceByDeviceIdWithExecutor(pool, deviceId);
 }
 
-async function registerDevice({ deviceId, locationLabel }) {
-    // Use UPSERT to insert or update the device record
-    const query = `
-        INSERT INTO devices (device_id, location_label, status, last_seen_at)
-        VALUES ($1, $2, 'online', NOW())
-        ON CONFLICT (device_id)
-        DO UPDATE SET
-            location_label = COALESCE(EXCLUDED.location_label, devices.location_label),
-            status = 'online',
-            last_seen_at = NOW()
-        RETURNING id, device_id, location_label, status, registered_at, last_seen_at;
-    `;
+async function ensureDefaultAlertRulesForDevice(executor, internalDeviceId) {
+    for (const rule of DEFAULT_ALERT_RULES) {
+        await executor.query(
+            `
+            INSERT INTO alert_rules (
+                device_id,
+                metric_name,
+                operator,
+                threshold_value,
+                duration_seconds,
+                enabled
+            )
+            SELECT $1, $2, $3, $4, $5, TRUE
+            WHERE NOT EXISTS (
+                SELECT 1
+                FROM alert_rules
+                WHERE device_id = $1
+                    AND metric_name = $2
+                    AND operator = $3
+                    AND threshold_value = $4
+                    AND duration_seconds = $5
+            )
+            `,
+            [
+                internalDeviceId,
+                rule.metricName,
+                rule.operator,
+                rule.thresholdValue,
+                rule.durationSeconds
+            ]
+        );
+    }
+}
 
-    const values = [deviceId, locationLabel || null];
-    const result = await pool.query(query, values);
-    return result.rows[0];
+async function registerDevice({ deviceId, locationLabel }) {
+    const client = await pool.connect();
+
+    try {
+        await client.query('BEGIN');
+
+        const result = await client.query(
+            `
+            INSERT INTO devices (device_id, location_label, status, last_seen_at)
+            VALUES ($1, $2, 'online', NOW())
+            ON CONFLICT (device_id)
+            DO UPDATE SET
+                location_label = COALESCE(EXCLUDED.location_label, devices.location_label),
+                status = 'online',
+                last_seen_at = NOW()
+            RETURNING id, device_id, location_label, status, registered_at, last_seen_at;
+            `,
+            [deviceId, locationLabel || null]
+        );
+        const device = result.rows[0];
+
+        await ensureDefaultAlertRulesForDevice(client, device.id);
+        await client.query('COMMIT');
+
+        return device;
+    } catch (error) {
+        await client.query('ROLLBACK');
+        throw error;
+    } finally {
+        client.release();
+    }
 }
 
 async function listDevices() {

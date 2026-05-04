@@ -5,6 +5,7 @@ const { loadFresh } = require('../../helpers/module-loader');
 
 test('registerDevice upserts a device and returns the inserted row', async () => {
     const capturedCalls = [];
+    let released = false;
     const expectedRow = {
         id: 3,
         device_id: 'pi-001',
@@ -17,10 +18,28 @@ test('registerDevice upserts a device and returns the inserted row', async () =>
     const service = loadFresh('src/services/devices.service.js', {
         mocks: {
             'src/config/db.js': {
-                query: async (query, values) => {
-                    capturedCalls.push({ query, values });
-                    return { rows: [expectedRow] };
-                }
+                connect: async () => ({
+                    query: async (query, values) => {
+                        capturedCalls.push({ query, values });
+
+                        if (query === 'BEGIN' || query === 'COMMIT') {
+                            return {};
+                        }
+
+                        if (/INSERT INTO devices/i.test(query)) {
+                            return { rows: [expectedRow] };
+                        }
+
+                        if (/INSERT INTO alert_rules/i.test(query)) {
+                            return { rows: [] };
+                        }
+
+                        throw new Error(`Unexpected query: ${query}`);
+                    },
+                    release: () => {
+                        released = true;
+                    }
+                })
             }
         }
     });
@@ -31,22 +50,54 @@ test('registerDevice upserts a device and returns the inserted row', async () =>
     });
 
     assert.deepEqual(result, expectedRow);
-    assert.equal(capturedCalls.length, 1);
-    assert.match(capturedCalls[0].query, /INSERT INTO devices/i);
-    assert.match(capturedCalls[0].query, /ON CONFLICT \(device_id\)/i);
-    assert.deepEqual(capturedCalls[0].values, ['pi-001', 'Engineering Lab']);
+    assert.equal(released, true);
+    assert.equal(capturedCalls[0].query, 'BEGIN');
+    assert.match(capturedCalls[1].query, /INSERT INTO devices/i);
+    assert.match(capturedCalls[1].query, /ON CONFLICT \(device_id\)/i);
+    assert.deepEqual(capturedCalls[1].values, ['pi-001', 'Engineering Lab']);
+
+    const defaultRuleCalls = capturedCalls.filter((call) => /INSERT INTO alert_rules/i.test(call.query));
+    assert.deepEqual(
+        defaultRuleCalls.map((call) => call.values),
+        [
+            [3, 'co2', '>=', 1500, 0],
+            [3, 'voc', '>=', 1000, 0],
+            [3, 'pm2_5', '>=', 55, 0],
+            [3, 'pm10', '>=', 254, 0]
+        ]
+    );
+    assert.ok(defaultRuleCalls.every((call) => /WHERE NOT EXISTS/i.test(call.query)));
+    assert.equal(capturedCalls.at(-1).query, 'COMMIT');
 });
 
 test('registerDevice stores a null location label when one is not provided', async () => {
     let capturedValues;
+    let released = false;
 
     const service = loadFresh('src/services/devices.service.js', {
         mocks: {
             'src/config/db.js': {
-                query: async (query, values) => {
-                    capturedValues = values;
-                    return { rows: [{ id: 7, device_id: 'pi-002' }] };
-                }
+                connect: async () => ({
+                    query: async (query, values) => {
+                        if (query === 'BEGIN' || query === 'COMMIT') {
+                            return {};
+                        }
+
+                        if (/INSERT INTO devices/i.test(query)) {
+                            capturedValues = values;
+                            return { rows: [{ id: 7, device_id: 'pi-002' }] };
+                        }
+
+                        if (/INSERT INTO alert_rules/i.test(query)) {
+                            return { rows: [] };
+                        }
+
+                        throw new Error(`Unexpected query: ${query}`);
+                    },
+                    release: () => {
+                        released = true;
+                    }
+                })
             }
         }
     });
@@ -54,6 +105,7 @@ test('registerDevice stores a null location label when one is not provided', asy
     await service.registerDevice({ deviceId: 'pi-002' });
 
     assert.deepEqual(capturedValues, ['pi-002', null]);
+    assert.equal(released, true);
 });
 
 test('listDevices returns rows in stable dashboard order', async () => {

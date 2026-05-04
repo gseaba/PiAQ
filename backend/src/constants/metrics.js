@@ -72,8 +72,36 @@ const ALERT_METRIC_CONFIG = {
     }
 };
 
+const DEFAULT_ALERT_RULES = [
+    {
+        metricName: 'co2',
+        operator: '>=',
+        thresholdValue: 1500,
+        durationSeconds: 0
+    },
+    {
+        metricName: 'voc',
+        operator: '>=',
+        thresholdValue: 1000,
+        durationSeconds: 0
+    },
+    {
+        metricName: 'pm2_5',
+        operator: '>=',
+        thresholdValue: 55,
+        durationSeconds: 0
+    },
+    {
+        metricName: 'pm10',
+        operator: '>=',
+        thresholdValue: 254,
+        durationSeconds: 0
+    }
+];
+
 module.exports = {
     SUPPORTED_METRICS,
     HISTORY_METRICS,
-    ALERT_METRIC_CONFIG
+    ALERT_METRIC_CONFIG,
+    DEFAULT_ALERT_RULES
 };
